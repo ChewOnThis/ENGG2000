@@ -1,0 +1,78 @@
+START
+
+Set left IR sensor to pin 2
+Set centre IR sensor to pin 3
+Set right IR sensor to pin 4
+
+Set motor IN1 to pin 6
+Set motor IN2 to pin 7
+Set laser to pin 8
+
+Set all sensors as inputs
+Set motor pins and laser pin as outputs
+
+Turn motor off
+Turn laser off
+
+LOOP FOREVER
+
+    Read left IR sensor
+    Read centre IR sensor
+    Read right IR sensor
+
+    Filter sensor readings so short IR pulses are still recognised
+
+    IF centre sensor detects target THEN
+
+        Stop motor
+
+        IF centre has been detected continuously for 150 ms THEN
+
+            Turn laser on
+
+            IF laser has remained on for 2 seconds THEN
+                Turn laser off
+                Mark target as complete
+            END IF
+
+        END IF
+
+
+    ELSE
+
+        Reset centre alignment timer
+
+        IF laser is currently on THEN
+            Turn laser off
+            Reset 2 second dwell timer
+        END IF
+
+
+        IF only left sensor detects target THEN
+
+            Turn motor left
+
+
+        ELSE IF only right sensor detects target THEN
+
+            Turn motor right
+
+
+        ELSE
+
+            Stop motor
+
+        END IF
+
+    END IF
+
+
+    IF no sensors detect a target THEN
+        Mark system as ready for next target
+    END IF
+
+
+    Print sensor states and current system action
+    to Serial Monitor
+
+END LOOP
