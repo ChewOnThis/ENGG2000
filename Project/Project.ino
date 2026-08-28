@@ -30,12 +30,28 @@ const byte ENCODER_B = 10;
 // FIT0186 approximate output-shaft encoder count
 const long COUNTS_PER_REV = 700;
 
-// Change this to LOW if your IR receivers output LOW when IR is detected.
-const byte IR_ACTIVE = HIGH;
+// 38 kHz IR receiver modules are normally active LOW.
+const byte IR_ACTIVE = LOW;
+
+// Stability / filtering values to reduce noisy oscillation and random-looking stops.
+const unsigned long SENSOR_HOLD_MS = 80;
+const unsigned long CENTRE_STABLE_MS = 150;
+const unsigned long LASER_TIME_MS = 2000;
+const unsigned long SENSOR_IDLE_RESET_MS = 1500;
 
 // Encoder state
 long encoderCount = 0;
 byte previousEncoderA = LOW;
+
+unsigned long lastLeft = 0;
+unsigned long lastCentre = 0;
+unsigned long lastRight = 0;
+unsigned long centreStart = 0;
+unsigned long laserStart = 0;
+unsigned long lastSensorActivity = 0;
+
+bool firing = false;
+bool targetComplete = false;
 
 // ------------------------------------------------------------
 // MOTOR CONTROL
@@ -54,6 +70,14 @@ void motorRight() {
 void motorStop() {
   digitalWrite(MOTOR_IN1, LOW);
   digitalWrite(MOTOR_IN2, LOW);
+}
+
+void resetTargetState() {
+  centreStart = 0;
+  firing = false;
+  targetComplete = false;
+  digitalWrite(LASER_PIN, LOW);
+  motorStop();
 }
 
 // ------------------------------------------------------------
@@ -77,6 +101,80 @@ void updateEncoder() {
 
 float getAngleDegrees() {
   return (encoderCount * 360.0) / COUNTS_PER_REV;
+}
+
+// ------------------------------------------------------------
+// SENSOR FILTERING
+// ------------------------------------------------------------
+
+void updateSensorState(unsigned long now) {
+  bool leftRaw = (digitalRead(LEFT_SENSOR) == IR_ACTIVE);
+  bool centreRaw = (digitalRead(CENTRE_SENSOR) == IR_ACTIVE);
+  bool rightRaw = (digitalRead(RIGHT_SENSOR) == IR_ACTIVE);
+
+  if (leftRaw) lastLeft = now;
+  if (centreRaw) lastCentre = now;
+  if (rightRaw) lastRight = now;
+
+  bool leftFiltered = (lastLeft != 0) && (now - lastLeft <= SENSOR_HOLD_MS);
+  bool centreFiltered = (lastCentre != 0) && (now - lastCentre <= SENSOR_HOLD_MS);
+  bool rightFiltered = (lastRight != 0) && (now - lastRight <= SENSOR_HOLD_MS);
+
+  if (leftFiltered || centreFiltered || rightFiltered) {
+    lastSensorActivity = now;
+  }
+
+  bool leftDetected = leftFiltered;
+  bool centreDetected = centreFiltered;
+  bool rightDetected = rightFiltered;
+
+  if (!leftDetected && !centreDetected && !rightDetected) {
+    targetComplete = false;
+  }
+
+  if (centreDetected) {
+    motorStop();
+
+    if (centreStart == 0) {
+      centreStart = now;
+    }
+
+    if (!firing && !targetComplete && (now - centreStart >= CENTRE_STABLE_MS)) {
+      firing = true;
+      laserStart = now;
+      digitalWrite(LASER_PIN, HIGH);
+      Serial.println(">>> TARGET ALIGNED - LASER ON");
+    }
+
+    if (firing && (now - laserStart >= LASER_TIME_MS)) {
+      digitalWrite(LASER_PIN, LOW);
+      firing = false;
+      targetComplete = true;
+      Serial.println(">>> 2 SECOND TARGET HIT COMPLETE");
+    }
+  }
+
+  else {
+    centreStart = 0;
+
+    if (firing) {
+      firing = false;
+      digitalWrite(LASER_PIN, LOW);
+      Serial.println(">>> ALIGNMENT LOST - LASER OFF");
+    }
+
+    if (leftDetected && !rightDetected) {
+      targetComplete = false;
+      motorLeft();
+    }
+    else if (rightDetected && !leftDetected) {
+      targetComplete = false;
+      motorRight();
+    }
+    else {
+      motorStop();
+    }
+  }
 }
 
 // ------------------------------------------------------------
@@ -113,33 +211,19 @@ void setup() {
 void loop() {
   updateEncoder();
 
-  bool leftDetected   = (digitalRead(LEFT_SENSOR)   == IR_ACTIVE);
-  bool centreDetected = (digitalRead(CENTRE_SENSOR) == IR_ACTIVE);
-  bool rightDetected  = (digitalRead(RIGHT_SENSOR)  == IR_ACTIVE);
+  unsigned long now = millis();
+  updateSensorState(now);
 
-  // Centre sensor has priority.
-  // When centred, stop rotation and activate the laser.
-  if (centreDetected) {
-    motorStop();
-    digitalWrite(LASER_PIN, HIGH);
+  if ((digitalRead(LEFT_SENSOR) == IR_ACTIVE) ||
+      (digitalRead(CENTRE_SENSOR) == IR_ACTIVE) ||
+      (digitalRead(RIGHT_SENSOR) == IR_ACTIVE)) {
+    lastSensorActivity = now;
   }
 
-  // Target is to the left.
-  else if (leftDetected && !rightDetected) {
-    digitalWrite(LASER_PIN, LOW);
-    motorLeft();
-  }
-
-  // Target is to the right.
-  else if (rightDetected && !leftDetected) {
-    digitalWrite(LASER_PIN, LOW);
-    motorRight();
-  }
-
-  // Ambiguous signal or no target.
-  else {
-    motorStop();
-    digitalWrite(LASER_PIN, LOW);
+  else if (lastSensorActivity != 0 && (now - lastSensorActivity >= SENSOR_IDLE_RESET_MS)) {
+    resetTargetState();
+    lastSensorActivity = 0;
+    Serial.println(">>> SENSOR IDLE RESET - READY FOR NEXT TARGET");
   }
 
   // Serial status output
@@ -147,6 +231,10 @@ void loop() {
 
   if (millis() - lastPrint >= 200) {
     lastPrint = millis();
+
+    bool leftDetected = (lastLeft != 0) && (millis() - lastLeft <= SENSOR_HOLD_MS);
+    bool centreDetected = (lastCentre != 0) && (millis() - lastCentre <= SENSOR_HOLD_MS);
+    bool rightDetected = (lastRight != 0) && (millis() - lastRight <= SENSOR_HOLD_MS);
 
     Serial.print("L:");
     Serial.print(leftDetected);
@@ -164,6 +252,7 @@ void loop() {
     Serial.print(getAngleDegrees(), 1);
 
     Serial.print(" deg | Laser:");
-    Serial.println(centreDetected ? "ON" : "OFF");
+    Serial.println(firing ? "ON" : "OFF");
   }
 }
+
