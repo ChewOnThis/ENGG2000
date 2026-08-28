@@ -1,322 +1,169 @@
-// ============================================================
-// MQ SENTINEL - MVP CONTROL
+// MQ Sentinel - IR Tracking Controller
 // Arduino Nano
 //
-// D2 = Left IR sensor
-// D3 = Centre IR sensor
-// D4 = Right IR sensor
-// D6 = DRV8874 IN1
-// D7 = DRV8874 IN2
-// D8 = Laser
-// ============================================================
+// Wiring:
+//   Left IR sensor   -> D2
+//   Centre IR sensor -> D3
+//   Right IR sensor  -> D4
+//   Motor IN1        -> D6
+//   Motor IN2        -> D7
+//   Laser diode      -> D8
+//   Encoder A        -> D9
+//   Encoder B        -> D10
+//
+// Note:
+// D7 is not PWM-capable on the Arduino Nano, so the motor is controlled
+// using full-speed digital IN1/IN2 direction commands.
 
-const byte IR_LEFT   = 2;
-const byte IR_CENTRE = 3;
-const byte IR_RIGHT  = 4;
+const byte LEFT_SENSOR   = 2;
+const byte CENTRE_SENSOR = 3;
+const byte RIGHT_SENSOR  = 4;
 
 const byte MOTOR_IN1 = 6;
 const byte MOTOR_IN2 = 7;
 
 const byte LASER_PIN = 8;
 
+const byte ENCODER_A = 9;
+const byte ENCODER_B = 10;
 
-// Change to true if motor turns the wrong direction
-const bool REVERSE_MOTOR = false;
+// FIT0186 approximate output-shaft encoder count
+const long COUNTS_PER_REV = 700;
 
+// Change this to LOW if your IR receivers output LOW when IR is detected.
+const byte IR_ACTIVE = HIGH;
 
-// Sensor filtering
-const unsigned long IR_HOLD_MS = 60;
+// Encoder state
+long encoderCount = 0;
+byte previousEncoderA = LOW;
 
-// Centre must remain detected this long before laser fires
-const unsigned long CENTRE_STABLE_MS = 150;
+// ------------------------------------------------------------
+// MOTOR CONTROL
+// ------------------------------------------------------------
 
-// Required target dwell
-const unsigned long LASER_TIME_MS = 2000;
+void motorLeft() {
+  digitalWrite(MOTOR_IN1, LOW);
+  digitalWrite(MOTOR_IN2, HIGH);
+}
 
-// Serial update interval
-const unsigned long PRINT_MS = 250;
+void motorRight() {
+  digitalWrite(MOTOR_IN1, HIGH);
+  digitalWrite(MOTOR_IN2, LOW);
+}
 
+void motorStop() {
+  digitalWrite(MOTOR_IN1, LOW);
+  digitalWrite(MOTOR_IN2, LOW);
+}
 
-// Last time each IR sensor detected activity
-unsigned long lastLeft = 0;
-unsigned long lastCentre = 0;
-unsigned long lastRight = 0;
+// ------------------------------------------------------------
+// ENCODER
+// ------------------------------------------------------------
 
-unsigned long centreStart = 0;
-unsigned long laserStart = 0;
-unsigned long lastPrint = 0;
+void updateEncoder() {
+  byte currentA = digitalRead(ENCODER_A);
 
-bool firing = false;
-bool targetComplete = false;
+  // Count on rising edge of encoder channel A
+  if (currentA == HIGH && previousEncoderA == LOW) {
+    if (digitalRead(ENCODER_B) != currentA) {
+      encoderCount++;
+    } else {
+      encoderCount--;
+    }
+  }
 
+  previousEncoderA = currentA;
+}
 
-// ============================================================
+float getAngleDegrees() {
+  return (encoderCount * 360.0) / COUNTS_PER_REV;
+}
+
+// ------------------------------------------------------------
 // SETUP
-// ============================================================
+// ------------------------------------------------------------
 
 void setup() {
-
-  Serial.begin(9600);
-
-  pinMode(IR_LEFT, INPUT);
-  pinMode(IR_CENTRE, INPUT);
-  pinMode(IR_RIGHT, INPUT);
+  pinMode(LEFT_SENSOR, INPUT);
+  pinMode(CENTRE_SENSOR, INPUT);
+  pinMode(RIGHT_SENSOR, INPUT);
 
   pinMode(MOTOR_IN1, OUTPUT);
   pinMode(MOTOR_IN2, OUTPUT);
 
   pinMode(LASER_PIN, OUTPUT);
 
-  stopMotor();
-  laserOff();
+  pinMode(ENCODER_A, INPUT);
+  pinMode(ENCODER_B, INPUT);
 
-  Serial.println("================================");
-  Serial.println("     MQ SENTINEL MVP READY");
-  Serial.println("================================");
+  motorStop();
+  digitalWrite(LASER_PIN, LOW);
+
+  previousEncoderA = digitalRead(ENCODER_A);
+
+  Serial.begin(9600);
+
+  Serial.println("MQ Sentinel IR tracker started");
 }
 
-
-// ============================================================
-// LOOP
-// ============================================================
+// ------------------------------------------------------------
+// MAIN LOOP
+// ------------------------------------------------------------
 
 void loop() {
+  updateEncoder();
 
-  unsigned long now = millis();
+  bool leftDetected   = (digitalRead(LEFT_SENSOR)   == IR_ACTIVE);
+  bool centreDetected = (digitalRead(CENTRE_SENSOR) == IR_ACTIVE);
+  bool rightDetected  = (digitalRead(RIGHT_SENSOR)  == IR_ACTIVE);
 
-
-  // ----------------------------------------------------------
-  // READ IR RECEIVERS
-  // 38 kHz receiver modules are normally ACTIVE LOW
-  // ----------------------------------------------------------
-
-  if (digitalRead(IR_LEFT) == LOW)
-    lastLeft = now;
-
-  if (digitalRead(IR_CENTRE) == LOW)
-    lastCentre = now;
-
-  if (digitalRead(IR_RIGHT) == LOW)
-    lastRight = now;
-
-
-  // Hold detections briefly so short IR pulses are not missed
-
-  bool left =
-      lastLeft != 0 &&
-      now - lastLeft <= IR_HOLD_MS;
-
-  bool centre =
-      lastCentre != 0 &&
-      now - lastCentre <= IR_HOLD_MS;
-
-  bool right =
-      lastRight != 0 &&
-      now - lastRight <= IR_HOLD_MS;
-
-
-  // ==========================================================
-  // CENTRE SENSOR
-  // Highest priority
-  // ==========================================================
-
-  if (centre) {
-
-    stopMotor();
-
-
-    // Start alignment timer
-    if (centreStart == 0)
-      centreStart = now;
-
-
-    // Fire laser after stable alignment
-    if (!firing &&
-        !targetComplete &&
-        now - centreStart >= CENTRE_STABLE_MS) {
-
-      firing = true;
-      laserStart = now;
-
-      laserOn();
-
-      Serial.println(">>> TARGET ALIGNED - LASER ON");
-    }
-
-
-    // Complete 2 second dwell
-    if (firing &&
-        now - laserStart >= LASER_TIME_MS) {
-
-      laserOff();
-
-      firing = false;
-      targetComplete = true;
-
-      Serial.println(">>> 2 SECOND TARGET HIT COMPLETE");
-    }
+  // Centre sensor has priority.
+  // When centred, stop rotation and activate the laser.
+  if (centreDetected) {
+    motorStop();
+    digitalWrite(LASER_PIN, HIGH);
   }
 
+  // Target is to the left.
+  else if (leftDetected && !rightDetected) {
+    digitalWrite(LASER_PIN, LOW);
+    motorLeft();
+  }
 
-  // ==========================================================
-  // NOT CENTRED
-  // ==========================================================
+  // Target is to the right.
+  else if (rightDetected && !leftDetected) {
+    digitalWrite(LASER_PIN, LOW);
+    motorRight();
+  }
 
+  // Ambiguous signal or no target.
   else {
-
-    centreStart = 0;
-
-
-    // If alignment is lost during laser dwell,
-    // cancel the attempt immediately
-    if (firing) {
-
-      firing = false;
-
-      laserOff();
-
-      Serial.println(">>> ALIGNMENT LOST - LASER OFF");
-    }
-
-
-    // --------------------------------------------------------
-    // LEFT SENSOR
-    // --------------------------------------------------------
-
-    if (left && !right) {
-
-      targetComplete = false;
-
-      turnLeft();
-    }
-
-
-    // --------------------------------------------------------
-    // RIGHT SENSOR
-    // --------------------------------------------------------
-
-    else if (right && !left) {
-
-      targetComplete = false;
-
-      turnRight();
-    }
-
-
-    // --------------------------------------------------------
-    // No clear direction
-    // --------------------------------------------------------
-
-    else {
-
-      stopMotor();
-    }
+    motorStop();
+    digitalWrite(LASER_PIN, LOW);
   }
 
+  // Serial status output
+  static unsigned long lastPrint = 0;
 
-  // Beacon disappeared completely -> ready for next target
+  if (millis() - lastPrint >= 200) {
+    lastPrint = millis();
 
-  if (!left && !centre && !right) {
+    Serial.print("L:");
+    Serial.print(leftDetected);
 
-    targetComplete = false;
+    Serial.print(" C:");
+    Serial.print(centreDetected);
+
+    Serial.print(" R:");
+    Serial.print(rightDetected);
+
+    Serial.print(" | Encoder:");
+    Serial.print(encoderCount);
+
+    Serial.print(" | Angle:");
+    Serial.print(getAngleDegrees(), 1);
+
+    Serial.print(" deg | Laser:");
+    Serial.println(centreDetected ? "ON" : "OFF");
   }
-
-
-  // ==========================================================
-  // SERIAL MONITOR
-  // ==========================================================
-
-  if (now - lastPrint >= PRINT_MS) {
-
-    lastPrint = now;
-
-    Serial.print("LEFT:");
-    Serial.print(left);
-
-    Serial.print("  CENTRE:");
-    Serial.print(centre);
-
-    Serial.print("  RIGHT:");
-    Serial.print(right);
-
-    Serial.print("  |  ");
-
-    if (firing)
-      Serial.print("LASER FIRING");
-
-    else if (centre)
-      Serial.print("ALIGNED");
-
-    else if (left && !right)
-      Serial.print("TURNING LEFT");
-
-    else if (right && !left)
-      Serial.print("TURNING RIGHT");
-
-    else
-      Serial.print("WAITING");
-
-    Serial.println();
-  }
-}
-
-
-// ============================================================
-// MOTOR CONTROL
-// ============================================================
-
-void turnLeft() {
-
-  laserOff();
-
-  if (!REVERSE_MOTOR) {
-
-    digitalWrite(MOTOR_IN1, HIGH);
-    digitalWrite(MOTOR_IN2, LOW);
-
-  } else {
-
-    digitalWrite(MOTOR_IN1, LOW);
-    digitalWrite(MOTOR_IN2, HIGH);
-  }
-}
-
-
-void turnRight() {
-
-  laserOff();
-
-  if (!REVERSE_MOTOR) {
-
-    digitalWrite(MOTOR_IN1, LOW);
-    digitalWrite(MOTOR_IN2, HIGH);
-
-  } else {
-
-    digitalWrite(MOTOR_IN1, HIGH);
-    digitalWrite(MOTOR_IN2, LOW);
-  }
-}
-
-
-void stopMotor() {
-
-  digitalWrite(MOTOR_IN1, LOW);
-  digitalWrite(MOTOR_IN2, LOW);
-}
-
-
-// ============================================================
-// LASER CONTROL
-// ============================================================
-
-void laserOn() {
-
-  digitalWrite(LASER_PIN, HIGH);
-}
-
-
-void laserOff() {
-
-  digitalWrite(LASER_PIN, LOW);
 }
