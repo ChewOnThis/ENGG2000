@@ -68,8 +68,8 @@ void motorRight() {
 }
 
 void motorStop() {
-  digitalWrite(MOTOR_IN1, LOW);
-  digitalWrite(MOTOR_IN2, LOW);
+  digitalWrite(MOTOR_IN1, HIGH);
+  digitalWrite(MOTOR_IN2, HIGH); // electircal braking
 }
 
 void resetTargetState() {
@@ -226,33 +226,33 @@ void loop() {
     Serial.println(">>> SENSOR IDLE RESET - READY FOR NEXT TARGET");
   }
 
-  // Serial status output
-  static unsigned long lastPrint = 0;
+  // // Serial status output
+  // static unsigned long lastPrint = 0;
 
-  if (millis() - lastPrint >= 200) {
-    lastPrint = millis();
+  // if (millis() - lastPrint >= 200) {
+  //   lastPrint = millis();
 
-    bool leftDetected = (lastLeft != 0) && (millis() - lastLeft <= SENSOR_HOLD_MS);
-    bool centreDetected = (lastCentre != 0) && (millis() - lastCentre <= SENSOR_HOLD_MS);
-    bool rightDetected = (lastRight != 0) && (millis() - lastRight <= SENSOR_HOLD_MS);
+  //   bool leftDetected = (lastLeft != 0) && (millis() - lastLeft <= SENSOR_HOLD_MS);
+  //   bool centreDetected = (lastCentre != 0) && (millis() - lastCentre <= SENSOR_HOLD_MS);
+  //   bool rightDetected = (lastRight != 0) && (millis() - lastRight <= SENSOR_HOLD_MS);
 
-    Serial.print("L:");
-    Serial.print(leftDetected);
+  //   Serial.print("L:");
+  //   Serial.print(leftDetected);
 
-    Serial.print(" C:");
-    Serial.print(centreDetected);
+  //   Serial.print(" C:");
+  //   Serial.print(centreDetected);
 
-    Serial.print(" R:");
-    Serial.print(rightDetected);
+  //   Serial.print(" R:");
+  //   Serial.print(rightDetected);
 
-    Serial.print(" | Encoder:");
-    Serial.print(encoderCount);
+  //   Serial.print(" | Encoder:");
+  //   Serial.print(encoderCount);
 
-    Serial.print(" | Angle:");
-    Serial.print(getAngleDegrees(), 1);
+  //   Serial.print(" | Angle:");
+  //   Serial.print(getAngleDegrees(), 1);
 
-    Serial.print(" deg | Laser:");
-    Serial.println(firing ? "ON" : "OFF");
-  }
+  //   Serial.print(" deg | Laser:");
+  //   Serial.println(firing ? "ON" : "OFF");
+  // }
 }
 
