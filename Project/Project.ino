@@ -171,6 +171,9 @@ void updateSensorState(unsigned long now) {
       targetComplete = false;
       motorRight();
     }
+    else if (!leftDetected && !rightDetected) {
+      motorLeft();
+    }
     else {
       motorStop();
     }
