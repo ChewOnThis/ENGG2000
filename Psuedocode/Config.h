@@ -1,0 +1,15 @@
+// PSEUDOCODE: shared hardware configuration
+//
+// IR_LEFT_PIN   = 2
+// IR_CENTRE_PIN = 3
+// IR_RIGHT_PIN  = 4
+// MOTOR_IN1_PIN = 6
+// MOTOR_IN2_PIN = 7
+// LASER_PIN     = 8
+//
+// IR_ACTIVE_LEVEL = LOW
+// IR_HOLD_MS = 60
+// CENTRE_STABLE_MS = 150
+// LASER_TIME_MS = 2000
+// SERIAL_PRINT_MS = 250
+// REVERSE_MOTOR = false
