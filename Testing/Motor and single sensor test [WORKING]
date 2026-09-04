@@ -1,0 +1,68 @@
+#include <IRremote.hpp>
+
+const byte IR_SENSOR = 2;
+
+const byte MOTOR_IN1 = 6;
+const byte MOTOR_IN2 = 7;
+
+const byte LASER_PIN = 8;
+
+unsigned long lastDetection = 0;
+
+const unsigned long DETECTION_HOLD_MS = 200;
+
+void motorRun() {
+  digitalWrite(MOTOR_IN1, HIGH);
+  digitalWrite(MOTOR_IN2, LOW);
+}
+
+void motorBrake() {
+  digitalWrite(MOTOR_IN1, HIGH);
+  digitalWrite(MOTOR_IN2, HIGH);
+}
+
+void setup() {
+
+  Serial.begin(9600);
+
+  IrReceiver.begin(IR_SENSOR);
+
+  pinMode(MOTOR_IN1, OUTPUT);
+  pinMode(MOTOR_IN2, OUTPUT);
+  pinMode(LASER_PIN, OUTPUT);
+
+  digitalWrite(LASER_PIN, LOW);
+
+  motorRun();
+
+  Serial.println("MQ Sentinel started");
+}
+
+void loop() {
+
+  unsigned long now = millis();
+
+  if (IrReceiver.decode()) {
+
+    lastDetection = now;
+
+    Serial.println("IR DETECTED");
+
+    IrReceiver.resume();
+  }
+
+  bool detected =
+      lastDetection != 0 &&
+      now - lastDetection <= DETECTION_HOLD_MS;
+
+  if (detected) {
+
+    motorBrake();
+    digitalWrite(LASER_PIN, HIGH);
+
+  } else {
+
+    motorRun();
+    digitalWrite(LASER_PIN, LOW);
+  }
+}
