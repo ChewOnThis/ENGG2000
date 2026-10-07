@@ -1,0 +1,478 @@
+
+/*
+  ============================================================
+  MQ SENTINEL - TEST 3
+  MOTOR POWER VS CHASSIS ROTATION
+
+  Standalone Arduino Nano experiment.
+
+  No USB or Serial Monitor needed during testing.
+
+  Version A: Raw IR trigger.
+  Version B: Decoded IR trigger.
+
+  Motor durations:
+  100, 200, 300, 400, 500 ms
+
+  Results saved in EEPROM.
+
+  LED:
+  Trial number flashes before test.
+  ON  = Motor powered.
+  OFF = Motor power removed.
+  Three short flashes = Trial saved.
+  ============================================================
+*/
+
+// ============================================================
+// SELECT TEST VERSION
+// ============================================================
+
+// 0 = Raw HIGH/LOW detection
+// 1 = IRremote decoded detection
+
+#define USE_DECODED_IR 0
+
+#if USE_DECODED_IR
+#include <IRremote.hpp>
+#endif
+
+#include <EEPROM.h>
+
+// ============================================================
+// PIN DEFINITIONS
+// ============================================================
+
+const byte CENTRE_SENSOR = 3;
+
+const byte MOTOR_IN1 = 6;
+const byte MOTOR_IN2 = 7;
+
+const byte LASER_PIN = 8;
+
+const byte ENCODER_A = 9;
+const byte ENCODER_B = 10;
+
+const byte STATUS_LED = LED_BUILTIN;
+
+// ============================================================
+// TEST SETTINGS
+// ============================================================
+
+// Original search direction.
+const bool REVERSE_MOTOR = false;
+
+// Duration of each motor trial.
+const unsigned int MOTOR_TIMES[5] = {
+  100,
+  200,
+  300,
+  400,
+  500
+};
+
+const byte TOTAL_TRIALS = 5;
+
+// Preparation time after startup.
+const unsigned long START_DELAY_MS = 5000;
+
+// Continue monitoring encoder after motor power-off.
+const unsigned long POST_RUN_MS = 2000;
+
+// Original estimated encoder resolution.
+const float COUNTS_PER_REV = 700.0;
+
+// ============================================================
+// EEPROM SETTINGS
+// ============================================================
+
+// Address 0 stores the next trial number.
+// Records begin at address 16.
+
+const int TRIAL_ADDRESS = 0;
+
+const int RECORD_ADDRESS = 16;
+
+const byte RECORD_MAGIC = 0xA5;
+
+// ============================================================
+// DATA RECORD
+// ============================================================
+
+struct TestRecord {
+
+  byte magic;
+
+  unsigned int requestedTime;
+
+  unsigned int actualTime;
+
+  long encoderAtStop;
+
+  long encoderAfterStop;
+};
+
+// ============================================================
+// GLOBAL VARIABLES
+// ============================================================
+
+byte currentTrial = 0;
+
+long encoderCount = 0;
+
+byte previousEncoderA = LOW;
+
+bool testStarted = false;
+bool testFinished = false;
+
+// ============================================================
+// MOTOR CONTROL
+// ============================================================
+
+void motorLeft() {
+
+  if (!REVERSE_MOTOR) {
+
+    digitalWrite(MOTOR_IN1, LOW);
+    digitalWrite(MOTOR_IN2, HIGH);
+
+  } else {
+
+    digitalWrite(MOTOR_IN1, HIGH);
+    digitalWrite(MOTOR_IN2, LOW);
+
+  }
+}
+
+void motorCoast() {
+
+  // Both inputs LOW:
+  // Coast / high-impedance state for the intended
+  // DRV8874 IN1/IN2 control configuration.
+  //
+  // Verify your motor driver truth table.
+
+  digitalWrite(MOTOR_IN1, LOW);
+  digitalWrite(MOTOR_IN2, LOW);
+}
+
+// ============================================================
+// ENCODER
+// ============================================================
+
+void updateEncoder() {
+
+  byte currentA = digitalRead(ENCODER_A);
+
+  if (currentA == HIGH &&
+      previousEncoderA == LOW) {
+
+    if (digitalRead(ENCODER_B) != currentA) {
+
+      encoderCount++;
+
+    } else {
+
+      encoderCount--;
+    }
+  }
+
+  previousEncoderA = currentA;
+}
+
+// ============================================================
+// LED FEEDBACK
+// ============================================================
+
+void flashLED(
+  byte flashes,
+  unsigned int onTime,
+  unsigned int offTime
+) {
+
+  for (byte i = 0; i < flashes; i++) {
+
+    digitalWrite(STATUS_LED, HIGH);
+    delay(onTime);
+
+    digitalWrite(STATUS_LED, LOW);
+    delay(offTime);
+  }
+}
+
+// ============================================================
+// IR DETECTION
+// ============================================================
+
+bool beaconDetected() {
+
+#if USE_DECODED_IR
+
+  // Version B:
+  // Successfully decoded IR frame.
+
+  if (IrReceiver.decode()) {
+
+    IrReceiver.resume();
+
+    return true;
+  }
+
+  return false;
+
+#else
+
+  // Version A:
+  // Raw digital IR receiver output.
+
+  return digitalRead(CENTRE_SENSOR) == LOW;
+
+#endif
+}
+
+// ============================================================
+// SAVE TEST RESULTS
+// ============================================================
+
+void saveResults(
+  unsigned int requestedTime,
+  unsigned int actualTime,
+  long countAtStop,
+  long countAfterStop
+) {
+
+  TestRecord result;
+
+  result.magic = RECORD_MAGIC;
+
+  result.requestedTime = requestedTime;
+
+  result.actualTime = actualTime;
+
+  result.encoderAtStop = countAtStop;
+
+  result.encoderAfterStop = countAfterStop;
+
+  int address =
+      RECORD_ADDRESS +
+      currentTrial * sizeof(TestRecord);
+
+  EEPROM.put(address, result);
+
+  // Advance to the next trial only after
+  // the current result has been saved.
+
+  EEPROM.update(
+    TRIAL_ADDRESS,
+    currentTrial + 1
+  );
+}
+
+// ============================================================
+// RUN MOTOR TEST
+// ============================================================
+
+void runMotorTest() {
+
+  if (testStarted || testFinished) {
+    return;
+  }
+
+  testStarted = true;
+
+  unsigned int requestedTime =
+      MOTOR_TIMES[currentTrial];
+
+  // Reset encoder measurement.
+  encoderCount = 0;
+
+  previousEncoderA = digitalRead(ENCODER_A);
+
+  // ==========================================================
+  // START MOTOR AND VIDEO INDICATOR
+  // ==========================================================
+
+  unsigned long startTime = millis();
+
+  digitalWrite(STATUS_LED, HIGH);
+
+  motorLeft();
+
+  // ==========================================================
+  // RUN MOTOR FOR REQUESTED DURATION
+  // ==========================================================
+
+  while (
+    millis() - startTime < requestedTime
+  ) {
+
+    updateEncoder();
+  }
+
+  // ==========================================================
+  // REMOVE MOTOR DRIVE
+  // ==========================================================
+
+  motorCoast();
+
+  // LED OFF marks motor power-off.
+  digitalWrite(STATUS_LED, LOW);
+
+  unsigned long stopTime = millis();
+
+  unsigned int actualTime =
+      (unsigned int)(stopTime - startTime);
+
+  // Capture motor encoder position at power-off.
+  updateEncoder();
+
+  long countAtStop = encoderCount;
+
+  // ==========================================================
+  // OBSERVE RESIDUAL WHEEL ROTATION
+  // ==========================================================
+
+  unsigned long postRunStart = millis();
+
+  while (
+    millis() - postRunStart < POST_RUN_MS
+  ) {
+
+    updateEncoder();
+  }
+
+  long countAfterStop = encoderCount;
+
+  // ==========================================================
+  // SAVE RESULTS
+  // ==========================================================
+
+  saveResults(
+    requestedTime,
+    actualTime,
+    countAtStop,
+    countAfterStop
+  );
+
+  testFinished = true;
+
+  // Three short flashes indicate successful save.
+  flashLED(3, 120, 120);
+
+  // Motor remains off.
+  motorCoast();
+}
+
+// ============================================================
+// SETUP
+// ============================================================
+
+void setup() {
+
+  pinMode(CENTRE_SENSOR, INPUT);
+
+  pinMode(MOTOR_IN1, OUTPUT);
+  pinMode(MOTOR_IN2, OUTPUT);
+
+  pinMode(LASER_PIN, OUTPUT);
+
+  pinMode(ENCODER_A, INPUT);
+  pinMode(ENCODER_B, INPUT);
+
+  pinMode(STATUS_LED, OUTPUT);
+
+  digitalWrite(LASER_PIN, LOW);
+
+  digitalWrite(STATUS_LED, LOW);
+
+  motorCoast();
+
+  previousEncoderA =
+      digitalRead(ENCODER_A);
+
+  // ==========================================================
+  // INITIALISE IR DETECTION
+  // ==========================================================
+
+#if USE_DECODED_IR
+
+  IrReceiver.begin(
+    CENTRE_SENSOR,
+    false
+  );
+
+#endif
+
+  // ==========================================================
+  // LOAD TRIAL NUMBER
+  // ==========================================================
+
+  currentTrial =
+      EEPROM.read(TRIAL_ADDRESS);
+
+  // Blank EEPROM normally contains 0xFF.
+  // Treat this as the first trial.
+
+  if (currentTrial == 0xFF) {
+
+    currentTrial = 0;
+
+    EEPROM.update(TRIAL_ADDRESS, 0);
+  }
+
+  // ==========================================================
+  // ALL TRIALS COMPLETE
+  // ==========================================================
+
+  if (currentTrial >= TOTAL_TRIALS) {
+
+    testFinished = true;
+
+    // Five slow flashes indicate all tests complete.
+    flashLED(5, 500, 500);
+
+    return;
+  }
+
+  // ==========================================================
+  // INDICATE CURRENT TRIAL
+  // ==========================================================
+
+  // 1 flash = 100 ms
+  // 2 flashes = 200 ms
+  // ...
+  // 5 flashes = 500 ms
+
+  flashLED(
+    currentTrial + 1,
+    350,
+    350
+  );
+
+  // Camera preparation time.
+  delay(START_DELAY_MS);
+
+  // Await beacon trigger.
+}
+
+// ============================================================
+// MAIN LOOP
+// ============================================================
+
+void loop() {
+
+  // Do not restart after trial completion.
+
+  if (testFinished) {
+    return;
+  }
+
+  // ==========================================================
+  // WAIT FOR BEACON TRIGGER
+  // ==========================================================
+
+  if (!testStarted && beaconDetected()) {
+
+    runMotorTest();
+  }
+}
