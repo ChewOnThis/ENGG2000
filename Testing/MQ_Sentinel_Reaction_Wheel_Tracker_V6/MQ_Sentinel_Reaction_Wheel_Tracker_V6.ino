@@ -166,7 +166,7 @@ bool searchWasInterrupted = false;
 
 // -------------------- Search tuning --------------------
 // These are deliberately small compared with the old continuous search.
-const long SEARCH_COUNTS = 70;
+const long SEARCH_COUNTS = 20;
 const int SEARCH_POWER = 175;
 const unsigned long SEARCH_SETTLE_MS = 260;
 
