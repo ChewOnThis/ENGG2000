@@ -1,4 +1,4 @@
-// MQ Sentinel - IR Tracking Controller + IR Remote Enable/Disable
+/// MQ Sentinel - IR Tracking Controller
 // Arduino Nano
 //
 // Wiring:
@@ -10,20 +10,10 @@
 //   Laser diode       -> D8
 //   Encoder A         -> D9
 //   Encoder B         -> D10
-//   IR remote receiver-> D11   (NEW - moved off D2 to avoid clashing
-//                                with LEFT_SENSOR)
 //
 // Note:
 // D7 is not PWM-capable on the Arduino Nano, so the motor is controlled
 // using full-speed digital IN1/IN2 direction commands.
-//
-// NEW BEHAVIOUR:
-// A standard IR remote (decoded via IRremote.hpp) is used as a wireless
-// arm/disarm switch. Any decoded button press toggles systemEnabled.
-// While disabled, the motor is stopped, the laser is forced off, and
-// target tracking/firing logic is skipped entirely.
-
-#include <IRremote.hpp>
 
 const byte LEFT_SENSOR   = 2;
 const byte CENTRE_SENSOR = 3;
@@ -37,8 +27,6 @@ const byte LASER_PIN = 8;
 const byte ENCODER_A = 9;
 const byte ENCODER_B = 10;
 
-const byte IR_REMOTE_PIN = 11;
-
 // FIT0186 approximate output-shaft encoder count
 const long COUNTS_PER_REV = 700;
 
@@ -50,9 +38,6 @@ const unsigned long SENSOR_HOLD_MS = 80;
 const unsigned long CENTRE_STABLE_MS = 150;
 const unsigned long LASER_TIME_MS = 2000;
 const unsigned long SENSOR_IDLE_RESET_MS = 1500;
-
-// Debounce so a held remote button doesn't rapid-toggle systemEnabled
-const unsigned long REMOTE_TOGGLE_DEBOUNCE_MS = 400;
 
 // Encoder state
 long encoderCount = 0;
@@ -67,10 +52,6 @@ unsigned long lastSensorActivity = 0;
 
 bool firing = false;
 bool targetComplete = false;
-
-// Remote enable/disable state
-bool systemEnabled = true;
-unsigned long lastRemoteToggle = 0;
 
 // ------------------------------------------------------------
 // MOTOR CONTROL
@@ -96,7 +77,9 @@ void resetTargetState() {
   firing = false;
   targetComplete = false;
   digitalWrite(LASER_PIN, LOW);
-  motorStop();
+  // Note: motor is deliberately left alone here. It's already being driven
+  // every loop by updateSensorState() based on current sensor readings, so
+  // forcing a stop here just interrupts the search sweep unnecessarily.
 }
 
 // ------------------------------------------------------------
@@ -120,31 +103,6 @@ void updateEncoder() {
 
 float getAngleDegrees() {
   return (encoderCount * 360.0) / COUNTS_PER_REV;
-}
-
-// ------------------------------------------------------------
-// IR REMOTE (enable/disable)
-// ------------------------------------------------------------
-
-void updateRemote(unsigned long now) {
-  if (IrReceiver.decode()) {
-    Serial.print(">>> REMOTE CODE: 0x");
-    Serial.println(IrReceiver.decodedIRData.decodedRawData, HEX);
-
-    if (now - lastRemoteToggle >= REMOTE_TOGGLE_DEBOUNCE_MS) {
-      systemEnabled = !systemEnabled;
-      lastRemoteToggle = now;
-
-      if (systemEnabled) {
-        Serial.println(">>> SYSTEM ENABLED VIA REMOTE");
-      } else {
-        Serial.println(">>> SYSTEM DISABLED VIA REMOTE");
-        resetTargetState();
-      }
-    }
-
-    IrReceiver.resume();
-  }
 }
 
 // ------------------------------------------------------------
@@ -172,11 +130,40 @@ void updateSensorState(unsigned long now) {
   bool centreDetected = centreFiltered;
   bool rightDetected = rightFiltered;
 
+  static byte previousSensorState = 255;
+  byte sensorState = (leftDetected ? 1 : 0) |
+                     (centreDetected ? 2 : 0) |
+                     (rightDetected ? 4 : 0);
+
+  if (sensorState != previousSensorState) {
+    Serial.print("Sensors detecting: ");
+
+    if (sensorState == 0) {
+      Serial.println("NONE");
+    }
+    else {
+      if (leftDetected) {
+        Serial.print("LEFT");
+      }
+      if (centreDetected) {
+        if (leftDetected) Serial.print(" + ");
+        Serial.print("CENTRE");
+      }
+      if (rightDetected) {
+        if (leftDetected || centreDetected) Serial.print(" + ");
+        Serial.print("RIGHT");
+      }
+      Serial.println();
+    }
+
+    previousSensorState = sensorState;
+  }
+
   if (!leftDetected && !centreDetected && !rightDetected) {
     targetComplete = false;
   }
 
-  if (centreDetected) {
+  if (centreDetected && !leftDetected && !rightDetected) {
     motorStop();
 
     if (centreStart == 0) {
@@ -207,19 +194,17 @@ void updateSensorState(unsigned long now) {
       Serial.println(">>> ALIGNMENT LOST - LASER OFF");
     }
 
-    if (leftDetected && !rightDetected) {
+    if (leftDetected) {
       targetComplete = false;
       motorLeft();
     }
-    else if (rightDetected && !leftDetected) {
+    else if (rightDetected) {
       targetComplete = false;
       motorRight();
     }
-    else if (!leftDetected && !rightDetected) {
-      motorLeft();
-    }
     else {
-      motorStop();
+      // Neither left nor right sees anything - default search sweep.
+      motorLeft();
     }
   }
 }
@@ -248,9 +233,7 @@ void setup() {
 
   Serial.begin(9600);
 
-  IrReceiver.begin(IR_REMOTE_PIN);
-
-  Serial.println("MQ Sentinel IR tracker + remote control started");
+  Serial.println("MQ Sentinel IR tracker started");
 }
 
 // ------------------------------------------------------------
@@ -261,14 +244,6 @@ void loop() {
   updateEncoder();
 
   unsigned long now = millis();
-
-  updateRemote(now);
-
-  if (!systemEnabled) {
-    motorStop();
-    digitalWrite(LASER_PIN, LOW);
-    return;
-  }
 
   updateSensorState(now);
 
@@ -284,32 +259,3 @@ void loop() {
     Serial.println(">>> SENSOR IDLE RESET - READY FOR NEXT TARGET");
   }
 }
-
-  // // Serial status output
-  // static unsigned long lastPrint = 0;
-
-  // if (millis() - lastPrint >= 200) {
-  //   lastPrint = millis();
-
-  //   bool leftDetected = (lastLeft != 0) && (millis() - lastLeft <= SENSOR_HOLD_MS);
-  //   bool centreDetected = (lastCentre != 0) && (millis() - lastCentre <= SENSOR_HOLD_MS);
-  //   bool rightDetected = (lastRight != 0) && (millis() - lastRight <= SENSOR_HOLD_MS);
-
-  //   Serial.print("L:");
-  //   Serial.print(leftDetected);
-
-  //   Serial.print(" C:");
-  //   Serial.print(centreDetected);
-
-  //   Serial.print(" R:");
-  //   Serial.print(rightDetected);
-
-  //   Serial.print(" | Encoder:");
-  //   Serial.print(encoderCount);
-
-  //   Serial.print(" | Angle:");
-  //   Serial.print(getAngleDegrees(), 1);
-
-  //   Serial.print(" deg | Laser:");
-  //   Serial.println(firing ? "ON" : "OFF");
-  // }

@@ -1,1 +1,56 @@
-Unit tests go here
+# Testing Inventory
+
+The repository contains manual Arduino sketches rather than an automated unit
+test suite. Upload one sketch at a time, keep the laser disabled or shielded,
+and record the observed sensor, motor, encoder, and safety behaviour.
+
+## Focused Tests
+
+| Location | Purpose |
+| --- | --- |
+| `3SensorMiddleStopSerialPrintElectricBraking/` | Three-sensor detection, centre stop, serial output, and electrical braking |
+| `HangTest/Decoding/` | IR receiver decoding and readout experiments |
+| `HangTest/NonDecoding/` | Basic receiver and motor behaviour without protocol decoding |
+| `SlopTest/lasertest.ino/` | Laser output check |
+| `Motor and single sensor test [WORKING]` | Early motor/single-sensor check; filename has no `.ino` extension |
+
+## Alignment Experiments
+
+`SlopTest/` contains the historical tuning sequence. The names describe the
+control idea being tested, not a guarantee that the sketch is the current or
+recommended controller:
+
+- V3 all-three-sensor alignment
+- V4 active hold
+- V5 step-settle tracking
+- V6 reaction-wheel and hybrid continuous search
+- V7 sensor funnel, smooth/unified/fluid micro-alignment, continuous seek,
+  and continuous reversing
+- V8 idle/seek/strong-seek progressive alignment and the V8/V8.1 state-machine
+  variants
+- Precision tracker V2 and V6.1 variants
+
+There are duplicate copies of several root sketches under `SlopTest/` for
+comparison and preservation. Treat the root copy and the test copy as
+independent Arduino sketches when compiling.
+
+## Recommended Manual Checks
+
+1. Confirm pin wiring and active-LOW sensor polarity with the diagnostic
+   sketches before connecting the motor.
+2. Verify left, centre, and right detections independently in Serial output.
+3. Verify the motor direction convention with the laser disconnected.
+4. Confirm electrical braking and encoder count direction at low power.
+5. Test loss of centre during a firing attempt; the laser should switch off in
+   the selected controller.
+6. Test a complete target cycle and the post-target reset before normal use.
+7. For EEPROM variants, verify dump, clear/arm, standby, and safe-stop serial
+   commands with the laser physically disabled.
+
+## Evidence Status
+
+The source tree documents test intentions and preserves many experiments, but
+it does not contain recorded pass/fail results, CI configuration, or host-side
+unit tests. A future test report should include the board, motor driver,
+sensor arrangement, battery state, selected sketch, tuning constants, and
+observed timing/results.
