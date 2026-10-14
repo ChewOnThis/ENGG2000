@@ -6,8 +6,20 @@ public:
   bool begin();
   bool calibrate(unsigned long samples, unsigned long intervalMs);
   bool update(unsigned long nowMs);
-  bool ready() const; float yawRateDps() const; float yawDegrees() const; unsigned long lastReadMs() const;
+  bool ready() const;
+  bool initialized() const;
+  byte whoAmI() const;
+  float yawRateDps() const;
+  float yawDegrees() const;
+  float rateDps(byte axis) const;
+  float angleDegrees(byte axis) const;
+  unsigned long readFailures() const;
+  unsigned long lastReadMs() const;
 private:
-  byte address_, axis_; float sign_, lsb_, bias_, rate_, degrees_; unsigned long lastUs_, lastMs_, failures_; bool ready_;
-  bool writeRegister(byte reg, byte value); bool readRaw(int16_t &raw);
+  byte address_, axis_, whoAmI_; float sign_, lsb_, bias_, rate_, degrees_;
+  float biases_[3], rates_[3], angles_[3];
+  unsigned long lastUs_, lastMs_, failures_; bool ready_, initialized_;
+  bool writeRegister(byte reg, byte value);
+  bool readWhoAmI();
+  bool readRaw(int16_t raw[3]);
 };

@@ -96,6 +96,7 @@ IrSensors irSensors(2, 3, 4, 250);
 void UserIRReceiveTimerInterruptHandler();
 #include <IRremote.hpp>
 #include <Wire.h>
+#include <string.h>
 
 // ============================================================
 // PINS (unchanged)
@@ -476,6 +477,17 @@ float faultPWM = 0.0f;
 // ---------- LED ----------
 unsigned long lastLedToggle = 0;
 bool ledState = false;
+
+// Optional, passive IR/gyro recenter diagnostic.  It never changes the
+// autonomous state machine or motor command; it only uses its live sensor data.
+bool recenterDiagnostic = false;
+enum RecenterCaptureState { RECENTER_IDLE, RECENTER_TRACKING, RECENTER_DONE };
+RecenterCaptureState recenterState = RECENTER_IDLE;
+float recenterFirstAngle = 0.0f, recenterLastAngle = 0.0f, recenterTarget = 0.0f;
+unsigned long recenterLastSeen = 0, lastDiagnosticPrint = 0;
+const unsigned long RECENTER_GAP_MS = 150;
+const float RECENTER_TOL_ON = 2.0f, RECENTER_TOL_OFF = 3.0f;
+bool recenterLed = false;
 
 // ============================================================
 // IR (unchanged reading logic)
@@ -1173,6 +1185,10 @@ void updateStateMachine(unsigned long now) {
 //   FAULT        40 ms blink
 
 void updateStatusLED(unsigned long now) {
+  if (recenterDiagnostic) {
+    digitalWrite(STATUS_LED, recenterLed ? HIGH : LOW);
+    return;
+  }
   if (state == CONFIRM || state == FIRE) {
     digitalWrite(STATUS_LED, HIGH);
     return;
@@ -1193,6 +1209,80 @@ void updateStatusLED(unsigned long now) {
     lastLedToggle = now;
     ledState = !ledState;
     digitalWrite(STATUS_LED, ledState ? HIGH : LOW);
+  }
+}
+
+void printGyroDiagnostics() {
+  Serial.print(F("GYRO who=0x")); Serial.print(gyro.whoAmI(), HEX);
+  Serial.print(F(" init=")); Serial.print(gyro.initialized() ? 1 : 0);
+  Serial.print(F(" ready=")); Serial.print(gyro.ready() ? 1 : 0);
+  Serial.print(F(" rate="));
+  for (byte a = 0; a < 3; ++a) { if (a) Serial.print(','); Serial.print(gyro.rateDps(a), 2); }
+  Serial.print(F(" angle="));
+  for (byte a = 0; a < 3; ++a) { if (a) Serial.print(','); Serial.print(gyro.angleDegrees(a), 1); }
+  Serial.print(F(" failures=")); Serial.println(gyro.readFailures());
+}
+
+void startRecenterDiagnostic() {
+  recenterDiagnostic = true; recenterState = RECENTER_IDLE; recenterLed = false;
+  digitalWrite(STATUS_LED, LOW);
+  Serial.println(F("RECENTER started (passive; autonomous control remains active)"));
+}
+
+void serviceRecenterDiagnostic(unsigned long now) {
+  bool detected = zone != NONE;
+  if (recenterState == RECENTER_IDLE && detected) {
+    recenterFirstAngle = recenterLastAngle = gyro.yawDegrees();
+    recenterLastSeen = now; recenterState = RECENTER_TRACKING;
+    Serial.print(F("IR FIRST angle=")); Serial.println(recenterFirstAngle, 2);
+  } else if (recenterState == RECENTER_TRACKING) {
+    if (detected) {
+      recenterLastAngle = gyro.yawDegrees(); recenterLastSeen = now;
+    } else if (now - recenterLastSeen > RECENTER_GAP_MS) {
+      recenterTarget = (recenterFirstAngle + recenterLastAngle) * 0.5f;
+      recenterState = RECENTER_DONE;
+      Serial.print(F("IR LAST angle=")); Serial.println(recenterLastAngle, 2);
+      Serial.print(F("RECENTER target=")); Serial.println(recenterTarget, 2);
+    }
+  }
+
+  if (recenterState == RECENTER_DONE) {
+    float error = recenterTarget - gyro.yawDegrees();
+    while (error > 180.0f) error -= 360.0f;
+    while (error < -180.0f) error += 360.0f;
+    float absError = fabs(error);
+    if (!recenterLed && absError <= RECENTER_TOL_ON) recenterLed = true;
+    if (recenterLed && absError > RECENTER_TOL_OFF) recenterLed = false;
+    if (now - lastDiagnosticPrint >= 200) {
+      lastDiagnosticPrint = now;
+      Serial.print(F("RECENTER angle=")); Serial.print(gyro.yawDegrees(), 2);
+      Serial.print(F(" target=")); Serial.print(recenterTarget, 2);
+      Serial.print(F(" error=")); Serial.print(error, 2);
+      Serial.println(recenterLed ? F(" CENTERED") : F(" seeking"));
+    }
+  }
+}
+
+void serviceSerialCommands() {
+  static char command[20]; static byte length = 0;
+  while (Serial.available()) {
+    char c = Serial.read();
+    if (c == '\r' || c == '\n') {
+      command[length] = '\0';
+      if (length == 1 && (command[0] == 'R' || command[0] == 'r')) startRecenterDiagnostic();
+      else if (strcmp(command, "RECENTER") == 0 || strcmp(command, "recenter") == 0) startRecenterDiagnostic();
+      else if ((length == 1 && (command[0] == 'G' || command[0] == 'g')) ||
+               strcmp(command, "GYRO") == 0 || strcmp(command, "gyro") == 0) printGyroDiagnostics();
+      else if (strcmp(command, "NORMAL") == 0 || strcmp(command, "normal") == 0) {
+        recenterDiagnostic = false; recenterState = RECENTER_IDLE; recenterLed = false;
+        Serial.println(F("NORMAL autonomous mode"));
+      } else if (length) {
+        Serial.println(F("Commands: RECENTER (R), GYRO (G), NORMAL"));
+      }
+      length = 0;
+    } else if (length < sizeof(command) - 1) {
+      command[length++] = c;
+    }
   }
 }
 
@@ -1297,7 +1387,8 @@ void sentinelSetup() {
   encoder.begin();
 
   if (gyro.begin() && gyro.calibrate(GYRO_CALIBRATION_SAMPLES, GYRO_CALIBRATION_INTERVAL_MS)) {
-        Serial.println(F("MPU-6050 gyro ready"));
+        Serial.print(F("MPU-6050 gyro ready WHO_AM_I=0x"));
+        Serial.println(gyro.whoAmI(), HEX);
   } else {
         Serial.println(F("FAULT: MPU-6050 unavailable or calibration failed"));
     if (REQUIRE_GYRO_FOR_FIRE) {
@@ -1313,6 +1404,7 @@ void sentinelSetup() {
   lastTickUs = micros();
 
   Serial.println(F("MQ Sentinel V8.0 - momentum funnel"));
+  Serial.println(F("Commands: RECENTER (R), GYRO (G), NORMAL"));
 }
 
 // ============================================================
@@ -1322,6 +1414,7 @@ void sentinelSetup() {
 void sentinelLoop() {
   unsigned long now = millis();
 
+  serviceSerialCommands();
   encoder.poll();          // no-op on the Nano (interrupt driven)
   irSensors.read(now);
   irSensors.updateZone(now);
@@ -1329,6 +1422,9 @@ void sentinelLoop() {
   zone = irSensors.zone();
   zoneSince = irSensors.zoneSince();
   targetLastSeen = irSensors.targetLastSeen();
+  if (recenterDiagnostic) {
+    serviceRecenterDiagnostic(now);
+  }
 
   if (micros() - lastTickUs >= CONTROL_PERIOD_US) {
     controlTick(now);
