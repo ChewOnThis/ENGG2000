@@ -9,8 +9,8 @@ and the experiments used to tune those behaviours.
 - [Project/Documentation.md](Project/Documentation.md) describes the current
   project sketch, wiring, control flow, and limitations.
 - [Project/Project.ino](Project/Project.ino) is the simple reference tracker.
-- `Goated/` contains the most developed controller experiments, including
-  EEPROM-backed flight logging and high-speed precision alignment.
+- [Goated/Documentation.md](Goated/Documentation.md) documents the two most
+  developed controllers, their state machines, commands, and EEPROM logs.
 - [Testing/Documentation.txt](Testing/Documentation.txt) records the test
   sketches and their purpose.
 - `Psuedocode/` contains the proposed modular design and pseudocode. It is a

@@ -1,16 +1,14 @@
 # MQ Sentinel: Project Controller
 
-## Scope
+`Project.ino` is the integrated V8 momentum-funnel controller for an Arduino
+Nano. It combines the tested V8 IR receiver, reaction-wheel, encoder,
+MPU-6050 body-gyro, state machine, fault, telemetry, and laser-safety paths in
+the main project sketch.
 
-This guide describes [Project.ino](Project.ino), the simple reference
-implementation in this repository. It is separate from the more advanced
-controllers in `Goated/` and the historical experiments in `Testing/`.
-
-The Arduino Nano reads three active-LOW infrared receivers and commands a
-two-direction motor. A target detected on the left or right selects a motor
-direction; a centre-only detection stops the motor and, after a stable dwell,
-fires the laser. An encoder counts motor movement for an optional angle
-calculation.
+The sketch requires the `IRremote` Arduino library. It uses three independent
+38 kHz receiver instances and must be uploaded to a Nano-compatible
+ATmega328P board with the wiring below. The MPU-6050 is accessed directly over
+I2C using the Arduino `Wire` library; no additional IMU library is required.
 
 ## Hardware Connections
 
@@ -24,56 +22,100 @@ calculation.
 | Laser diode | D8 |
 | Encoder channel A | D9 |
 | Encoder channel B | D10 |
+| Status LED | D13 |
+| MPU-6050 SDA | A4 |
+| MPU-6050 SCL | A5 |
 
-The IR sensors are active LOW. The project sketch does not contain an IR
-remote enable/disable input, does not use PWM speed control, and does not use
-EEPROM logging. `motorStop()` writes HIGH to both motor inputs, which is the
-electrical-braking command used by this sketch's motor driver.
+The IR receivers are active LOW. The motor uses PWM on D6 and a direction
+level on D7. The V8 controller keeps the reaction wheel spinning in one
+direction and changes its speed to produce both chassis torque directions; it
+does not use the electrical brake as a normal steering command.
 
-## Tunable Constants
+Mount the MPU-6050 rigidly on the sentinel body, not on the reaction wheel.
+The default yaw axis is Z (`GYRO_YAW_AXIS = 2`) and the default sign is
+positive (`GYRO_YAW_SIGN = 1.0`). Change these constants after the axis and
+direction are verified with the diagnostic sketch. Use a suitable
+bidirectional level shifter for Nano 5 V I2C signals unless the exact
+breakout board is confirmed to provide level shifting.
 
-| Constant | Value | Purpose |
-| --- | ---: | --- |
-| `COUNTS_PER_REV` | 700 | Approximate encoder counts per output revolution |
-| `SENSOR_HOLD_MS` | 80 ms | Holds a recent active sensor reading |
-| `CENTRE_STABLE_MS` | 150 ms | Centre-only dwell before firing |
-| `LASER_TIME_MS` | 2000 ms | Laser-on duration |
-| `SENSOR_IDLE_RESET_MS` | 1500 ms | Inactivity before the target-complete latch resets |
+## Controller States
 
-## Control Flow
+1. `STARTUP` gently starts the wheel, learns encoder direction, and enters the
+   configured search-speed window.
+2. `SEARCH` sweeps continuously until any receiver reports a valid IR frame.
+3. `TRACK` applies the current sensor zone as a smooth steering target and
+   handles brief receiver dropouts.
+4. `CONFIRM` settles an `ALL_THREE` alignment before firing.
+5. `FIRE` enables the laser only while all three sensors remain active.
+6. `WAIT_CLEAR` holds the wheel state until the target has cleared.
+7. `FAULT` turns the laser off and ramps the wheel down if a safety trip fires.
 
-1. `setup()` configures the sensor, motor, laser, and encoder pins, brakes the
-   motor, turns the laser off, stores the initial encoder-A level, and starts
-   Serial at 9600 baud.
-2. Each `loop()` samples the encoder and reads the three sensors.
-3. Active sensor readings are held for 80 ms to reduce flicker and brief gaps.
-4. Centre-only detection brakes the motor and starts the centre timer. After
-   150 ms, the laser turns on for up to 2 seconds.
-5. Losing centre cancels an active firing cycle and turns the laser off.
-6. Outside the centre-only condition, left detection commands `motorLeft()`;
-   otherwise right detection commands `motorRight()`; with no side detection,
-   the sketch searches left.
-7. After 1.5 seconds without sensor activity, the target-complete latch and
-   firing state are reset for the next target.
+If the target is lost during `FIRE`, the laser is disabled immediately and the
+firing dwell must start again. The encoder is used for wheel speed and safety
+checks; it is not a chassis-angle or yaw sensor.
 
-## Encoder
+The gyro is used in three bounded ways:
 
-`updateEncoder()` counts rising edges on encoder channel A and samples channel
-B to infer direction. `getAngleDegrees()` converts the count using the
-approximate 700-count-per-revolution value. The helper is available for future
-telemetry, but the project loop does not currently print the angle.
+- `gyroYawRateDps` adds rate damping to the steering torque, reducing
+  overshoot while the body coasts.
+- `gyroYawRateDps` must remain below the confirmation threshold for the full
+  alignment dwell before firing.
+- The laser is immediately disabled if the gyro is unavailable, stale, or
+  reports motion above `GYRO_FIRE_RATE_LIMIT_DPS`.
 
-## Limitations and Validation
+`gyroYawDegrees` is an integrated, bias-corrected, boot-relative angle. It
+will drift over time and must not be treated as a compass heading. The
+stationary startup calibration must be performed with the sentinel completely
+still.
 
-- The default search command is left, so no-target behaviour is not a neutral
-  idle state.
-- The centre criterion is centre-only. Overlapping side and centre readings
-  do not fire.
-- The encoder is sampled in the main loop rather than using an interrupt.
-- There is no automated unit-test harness. Use the focused sketches in
-  [Testing/Documentation.txt](../Testing/Documentation.txt) for hardware
-  checks before enabling the laser.
+## Important Tuning Constants
 
-The advanced EEPROM/logging controllers in `Goated/` use different state
-machines, timings, serial commands, and safety assumptions. Do not use this
-document as their operating procedure.
+The main tuning values are grouped near the top of
+[Project.ino](Project.ino), including:
+
+- `IR_HOLD_MS`, `ALIGN_CONFIRM_MS`, and `FIRE_TIME_MS` for receiver hold,
+  alignment confirmation, and laser dwell.
+- `DRIFT_OUTER`, `DRIFT_INNER`, `DRIFT_CREEP`, and `DRIFT_SEARCH` for steering
+  targets.
+- `WHEEL_TRACK_MIN_RPM`, `WHEEL_TRACK_MAX_RPM`, and
+  `WHEEL_SEARCH_MIN_RPM`/`WHEEL_SEARCH_MAX_RPM` for the speed windows.
+- `WHEEL_TRIP_RPM`, `WHEEL_BACKWARDS_TRIP_RPM`, and `ENCODER_STALL_MS` for
+  wheel safety faults.
+- `GYRO_YAW_AXIS`, `GYRO_YAW_SIGN`, `GYRO_RATE_DAMPING`,
+  `GYRO_CONFIRM_RATE_LIMIT_DPS`, and `GYRO_FIRE_RATE_LIMIT_DPS` for body
+  motion feedback.
+- `TELEMETRY_MS` for periodic serial diagnostics; set it to `0` to disable
+  telemetry.
+
+The default serial speed is 115200 baud. Telemetry reports state, sensor zone,
+wheel speed, setpoint, drift estimate, PWM, laser state, and fault status.
+
+## Validation
+
+There is no host-side automated test harness for the Arduino sketch. Before
+connecting or enabling the laser, use the focused sketches in
+[Testing/Documentation.txt](../Testing/Documentation.txt) to verify receiver
+polarity, motor direction, encoder direction, and electrical connections.
+Run the [MPU-6050 diagnostic procedures](../WedGyroTests/GyroTests/README_TEST_PROCEDURES.md)
+before integrating the sensor. Confirm the correct yaw axis, sign, stationary
+bias stability, and I2C wiring. Then test startup, target loss during firing,
+full target completion, gyro motion aborts, and the fault indicators with the
+laser physically disabled or shielded.
+
+## Further gyro improvements
+
+The current retrofit intentionally avoids using integrated yaw as an absolute
+target heading. Useful next improvements, after collecting test data, are:
+
+1. Calibrate the angular offset between each IR zone and the laser axis.
+2. Use gyro rate and measured yaw change to adapt the carry distance and
+   `DRIFT_INNER` instead of relying on fixed values.
+3. Add a stationary-period bias monitor that updates gyro bias only when the
+   body is demonstrably still; never adapt bias during a turn.
+4. Record a gyro-relative heading when a physically verified target lock is
+   achieved, then use that landmark to reacquire a known target after dropout.
+5. Add a complementary yaw estimate that combines gyro integration with
+   confirmed IR landmarks; this can reduce drift but cannot identify
+   anonymous identical beacons.
+6. Use yaw acceleration and rate to detect mechanical oscillation, string
+   release, or a loose sensor mount and enter a conservative recovery mode.

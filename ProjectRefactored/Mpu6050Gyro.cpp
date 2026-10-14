@@ -1,0 +1,9 @@
+#include "Mpu6050Gyro.h"
+#include <Wire.h>
+Mpu6050Gyro::Mpu6050Gyro(byte a, byte axis, float sign, float lsb):address_(a),axis_(axis),sign_(sign),lsb_(lsb),bias_(0),rate_(0),degrees_(0),lastUs_(0),lastMs_(0),failures_(0),ready_(false){}
+bool Mpu6050Gyro::writeRegister(byte r,byte v){Wire.beginTransmission(address_);Wire.write(r);Wire.write(v);return Wire.endTransmission()==0;}
+bool Mpu6050Gyro::readRaw(int16_t &raw){if(axis_>2)return false;Wire.beginTransmission(address_);Wire.write((byte)(0x43+axis_*2));if(Wire.endTransmission(false)!=0||Wire.requestFrom(address_,(byte)2)!=2)return false;raw=(int16_t)(((uint16_t)(byte)Wire.read()<<8)|(byte)Wire.read());return true;}
+bool Mpu6050Gyro::begin(){Wire.begin();Wire.setClock(400000UL);Wire.beginTransmission(address_);if(Wire.endTransmission()!=0)return false;ready_=writeRegister(0x6B,0x01)&&writeRegister(0x1A,0x03)&&writeRegister(0x19,0x09)&&writeRegister(0x1B,0x00);return ready_;}
+bool Mpu6050Gyro::calibrate(unsigned long samples,unsigned long intervalMs){ready_=false;if(samples==0)return false;double sum=0;int16_t raw;for(unsigned long i=0;i<samples;i++){if(!readRaw(raw))return false;sum+=raw;delay(intervalMs);}bias_=sum/samples;rate_=degrees_=0;lastUs_=micros();lastMs_=millis();failures_=0;ready_=true;return true;}
+bool Mpu6050Gyro::update(unsigned long nowMs){int16_t raw;if(!readRaw(raw)){failures_++;return false;}unsigned long nowUs=micros();float measured=sign_*((float)raw-bias_)/lsb_;rate_+=0.15f*(measured-rate_);float dt=(float)(nowUs-lastUs_)*1e-6f;if(dt>0&&dt<=0.1f)degrees_+=rate_*dt;lastUs_=nowUs;lastMs_=nowMs;return true;}
+bool Mpu6050Gyro::ready()const{return ready_;} float Mpu6050Gyro::yawRateDps()const{return rate_;} float Mpu6050Gyro::yawDegrees()const{return degrees_;} unsigned long Mpu6050Gyro::lastReadMs()const{return lastMs_;}
