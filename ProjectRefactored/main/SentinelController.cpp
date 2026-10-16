@@ -92,9 +92,6 @@ IrSensors irSensors(2, 3, 4, 250);
 // only during stationary gyro bias calibration at startup.
 // ============================================================
 
-#define SUPPORT_MULTIPLE_RECEIVER_INSTANCES
-void UserIRReceiveTimerInterruptHandler();
-#include <IRremote.hpp>
 #include <Wire.h>
 #include <string.h>
 

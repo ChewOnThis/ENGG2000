@@ -14,7 +14,7 @@ The original sketch is intentionally untouched.
 
 ## Build requirements
 
-Open `main.ino` in the Arduino IDE (or build the folder with Arduino CLI) for an
+Open `main/main.ino` in the Arduino IDE (or build the `main` folder with Arduino CLI) for an
 Arduino Nano/ATmega328P. Install **IRremote** (the `IRremote.hpp` API, with
 multiple receiver instances enabled) and use the built-in **Wire** library.
 The sketch uses pins D2/D3/D4 for IR, D6/D7 for the motor driver, D8 for the

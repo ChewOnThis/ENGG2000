@@ -41,6 +41,9 @@ void Encoder::measure(unsigned long nowUs, unsigned long nowMs, byte windowTicks
   if (c != lastCountSeen_) { lastCountSeen_=c; lastCountChangeMs_=nowMs; }
 }
 #if defined(__AVR_ATmega328P__) || defined(__AVR_ATmega168__)
-ISR(PCINT0_vect) { if (Encoder::instance_) Encoder::instance_->onPinChange(); }
+ISR(PCINT0_vect) { Encoder::handlePinChangeInterrupt(); }
+void Encoder::handlePinChangeInterrupt() {
+  if (instance_) instance_->onPinChange();
+}
 void Encoder::onPinChange() { uint8_t pins=PINB, a=pins&_BV(1); if (a && !previousA_) count_ += (pins&_BV(2)) ? -1 : 1; previousA_=a; }
 #endif

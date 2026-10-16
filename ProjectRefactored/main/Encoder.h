@@ -13,6 +13,7 @@ public:
   float rawRpm() const;
   float rpm() const;
   unsigned long lastCountChangeMs() const;
+  static void handlePinChangeInterrupt();
 private:
   static Encoder *instance_;
   byte pinA_, pinB_;
@@ -30,5 +31,4 @@ private:
   volatile uint8_t previousA_;
 #endif
   void onPinChange();
-  friend void PCINT0_vect(void);
 };
