@@ -1,0 +1,12 @@
+Test,Beacon_Distance_mm,Physical_Direction,Command,Output_Start,Output_End,Observation
+First-trigger calibration,1000,,Power on,CAL_START,CAL_OK,Keep satellite fully still
+IR on-target occupancy,1000,,FLICKER 20,TEST_START,RESULT_FLICKER,Point directly at fixed emitter
+IR off-target noise,1000,,FLICKER 20,TEST_START,RESULT_FLICKER,Move beam outside FOV; keep chassis fixed
+IR edge flicker,1000,,FLICKER 20,TEST_START,RESULT_FLICKER,Near boundary of FOV
+Initial full survey,1000,Clockwise,SURVEY,SURVEY_START,SURVEY_END,360-degree physical sweep
+Repeatability,1000,Both,VERIFY,VERIFY_START,VERIFY_FINISHED,Five passes in each direction
+Gyro drift,1000,Still,DRIFT 60,TEST_START,RESULT_DRIFT,Check chassis does not physically move
+Gyro full rotation,1000,Clockwise,MARK then CHECK 360,MARK_OK,RESULT_CHECK,Fixed external physical alignment mark
+Return to mark,1000,Both,MARK then CHECK 0,MARK_OK,RESULT_CHECK,Back to same physical reference
+Laser boresight,1000,Still,SPOT measured_mm 1000,,RESULT_SPOT,Optional external measured spot offset
+Motor pulse later,1000,Positive,ARM MOTOR then PULSE 65 150,MOTOR_START,RESULT_MOTOR,Requires motor encoder and safety isolation
