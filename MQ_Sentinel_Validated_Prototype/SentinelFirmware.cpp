@@ -34,7 +34,7 @@
 #endif
 
 // --------------------- USER CONFIGURATION ---------------------------
-const uint8_t IR_PINS[3] = {2, 3, 4};
+const uint8_t IR_PINS[] = {4};
 const uint8_t LASER_PIN = 8;
 const uint8_t STATUS_LED = 13;
 const uint8_t MPU_ADDRESS = 0x68;
@@ -56,8 +56,8 @@ const float TARGET_MERGE_DEG = 18.0f;
 const uint8_t MAX_TARGETS = 3;
 const float ALIGN_TOL_DEG = 2.0f;
 const float REST_RATE_DPS = 0.75f;
-const uint16_t GYRO_SAMPLE_MS = 10;
-const uint16_t CAL_SAMPLES_REQUIRED = 220; // ~2.2 seconds
+const uint16_t GYRO_SAMPLE_MS = 5;
+const uint16_t CAL_SAMPLES_REQUIRED = 1000; // 5 seconds
 const float CAL_MAX_SD_DPS = 0.65f;
 const float CAL_ACCEL_G_TOLERANCE = 0.15f;
 const float JOLT_ACCEL_G = 1.65f;       // conservative invalidation threshold
