@@ -6,6 +6,9 @@ and the experiments used to tune those behaviours.
 
 ## Start Here
 
+- [MQ_Sentinel_V31/](MQ_Sentinel_V31/README.md) is the current operator-selected
+  baseline after a four-location battery trial. It includes V30 control and
+  full-run gate summaries; the fourth target required assistance, as documented.
 - [MQ_Sentinel_V24/](MQ_Sentinel_V24/README.md) preserves the single-IR/gyro
   V24 baseline with three recorded two-second laser-command holds. See its
   README for different wiring, EEPROM workflow, and known post-hit/search issues.
