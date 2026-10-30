@@ -6,6 +6,9 @@ and the experiments used to tune those behaviours.
 
 ## Start Here
 
+- [MQ_Sentinel_V24/](MQ_Sentinel_V24/README.md) preserves the single-IR/gyro
+  V24 baseline with three recorded two-second laser-command holds. See its
+  README for different wiring, EEPROM workflow, and known post-hit/search issues.
 - [Project/Documentation.md](Project/Documentation.md) describes the current
   project sketch, wiring, control flow, and limitations.
 - [Project/Project.ino](Project/Project.ino) is the simple reference tracker.
