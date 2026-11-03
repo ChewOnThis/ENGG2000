@@ -6,6 +6,7 @@ and the experiments used to tune those behaviours.
 
 ## Start Here
 
+- [MQ_Sentinel_V33/](MQ_Sentinel_V33/README.md) is the latest experimental iteration. It adds startup-only no-progress reversal to V32; its first EEPROM dump recorded five firmware holds, but the new recovery did not trigger. V31 remains the operator-selected baseline.
 - [MQ_Sentinel_V31/](MQ_Sentinel_V31/README.md) is the current operator-selected
   baseline after a four-location battery trial. It includes V30 control and
   full-run gate summaries; the fourth target required assistance, as documented.
