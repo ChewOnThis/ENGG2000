@@ -1,5 +1,6 @@
 #include "Mpu6050Gyro.h"
 #include <Wire.h>
+#include <math.h>
 Mpu6050Gyro::Mpu6050Gyro(byte a, byte axis, float sign, float lsb)
   : address_(a), axis_(axis), whoAmI_(0xff), sign_(sign), lsb_(lsb),
     bias_(0), rate_(0), degrees_(0), lastUs_(0), lastMs_(0), failures_(0),
@@ -22,23 +23,115 @@ bool Mpu6050Gyro::readRaw(int16_t raw[3]) {
   for (byte i = 0; i < 3; ++i) raw[i] = (int16_t)(((uint16_t)(byte)Wire.read() << 8) | (byte)Wire.read());
   return true;
 }
+float Mpu6050Gyro::readTemperature() {
+  Wire.beginTransmission(address_);
+  Wire.write((byte)0x41);
+  if (Wire.endTransmission(false) != 0 || Wire.requestFrom(address_, (byte)2) != 2) {
+    return NAN;
+  }
+  int16_t raw = (int16_t)(((uint16_t)(byte)Wire.read() << 8) | (byte)Wire.read());
+  return raw / 340.0f + 36.53f;
+}
 bool Mpu6050Gyro::begin() {
-  Wire.begin(); Wire.setClock(400000UL);
+  Wire.begin(); Wire.setClock(100000UL);
   initialized_ = readWhoAmI() && (whoAmI_ == 0x68 || whoAmI_ == 0x69);
-  ready_ = initialized_ && writeRegister(0x6B, 0x01) &&
+  ready_ = initialized_ && writeRegister(0x6B, 0x00) &&
            writeRegister(0x1A, 0x03) && writeRegister(0x19, 0x09) &&
            writeRegister(0x1B, 0x00);
   return ready_;
 }
 bool Mpu6050Gyro::calibrate(unsigned long samples, unsigned long intervalMs) {
-  ready_ = false; if (!initialized_ || samples == 0) return false;
-  double sums[3] = {0, 0, 0}; unsigned long good = 0; int16_t raw[3];
-  for (unsigned long i = 0; i < samples; ++i) {
-    if (readRaw(raw)) { for (byte a = 0; a < 3; ++a) sums[a] += raw[a]; ++good; }
-    delay(intervalMs);
+  ready_ = false;
+  if (!initialized_ || samples == 0) return false;
+
+  const byte NUM_TESTS = 6;
+  const unsigned long MIN_VALID_SAMPLES = 550;
+  float lowestBias = 100000.0f;
+  float highestBias = -100000.0f;
+  double totalBias = 0.0;
+  int completedTests = 0;
+  double sums[3] = {0.0, 0.0, 0.0};
+  unsigned long totalGood = 0;
+
+  Serial.println(F("============================"));
+  Serial.println(F("GYRO Y BIAS TEST"));
+  Serial.println(F("DO NOT MOVE THE SENSOR"));
+  Serial.println(F("============================"));
+  delay(3000);
+
+  for (byte test = 1; test <= NUM_TESTS; ++test) {
+    double testSums[3] = {0.0, 0.0, 0.0};
+    unsigned long good = 0;
+    int16_t raw[3];
+
+    for (unsigned long i = 0; i < samples; ++i) {
+      if (readRaw(raw)) {
+        for (byte axis = 0; axis < 3; ++axis) {
+          testSums[axis] += raw[axis];
+        }
+        ++good;
+      }
+      delay(intervalMs);
+    }
+
+    if (good < MIN_VALID_SAMPLES) {
+      Serial.println(F("READING ERROR - TEST STOPPED"));
+      return false;
+    }
+
+    float bias = (float)(testSums[1] / good);
+    if (bias < lowestBias) lowestBias = bias;
+    if (bias > highestBias) highestBias = bias;
+    totalBias += bias;
+    ++completedTests;
+    totalGood += good;
+    for (byte axis = 0; axis < 3; ++axis) {
+      sums[axis] += testSums[axis];
+    }
+
+    Serial.print(F("Test "));
+    Serial.print(test);
+    Serial.print(F(" | Raw bias: "));
+    Serial.print(bias, 4);
+    Serial.print(F(" | Offset deg/s: "));
+    Serial.print(bias / lsb_, 5);
+    Serial.print(F(" | Temp C: "));
+    Serial.println(readTemperature(), 2);
+    delay(300);
   }
-  if (good == 0) return false;
-  for (byte a = 0; a < 3; ++a) biases_[a] = sums[a] / good;
+
+  for (byte axis = 0; axis < 3; ++axis) {
+    biases_[axis] = sums[axis] / totalGood;
+  }
+
+  float averageBias = (float)(totalBias / completedTests);
+  float variation = highestBias - lowestBias;
+  float variationDps = variation / lsb_;
+
+  Serial.println();
+  Serial.println(F("============================"));
+  Serial.println(F("FINAL RESULTS"));
+  Serial.println(F("============================"));
+  Serial.print(F("AVERAGE RAW BIAS: "));
+  Serial.println(averageBias, 4);
+  Serial.print(F("LOWEST: "));
+  Serial.println(lowestBias, 4);
+  Serial.print(F("HIGHEST: "));
+  Serial.println(highestBias, 4);
+  Serial.print(F("BIAS RANGE: "));
+  Serial.println(variation, 4);
+  Serial.print(F("RANGE IN DEG/S: "));
+  Serial.println(variationDps, 6);
+  Serial.print(F("EQUIVALENT DRIFT RANGE DEG/MIN: "));
+  Serial.println(variationDps * 60.0f, 3);
+  Serial.println();
+  Serial.println(F("COPY THIS VALUE:"));
+  Serial.print(F("const float GYRO_BIAS = "));
+  Serial.print(averageBias, 4);
+  Serial.println(F(";"));
+  Serial.println();
+  Serial.println(F("TEST COMPLETE"));
+
   bias_ = biases_[axis_]; rate_ = degrees_ = 0;
   for (byte a = 0; a < 3; ++a) rates_[a] = angles_[a] = 0;
   lastUs_ = micros(); lastMs_ = millis(); failures_ = 0; ready_ = true; return true;

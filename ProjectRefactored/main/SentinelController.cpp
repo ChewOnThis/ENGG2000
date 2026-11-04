@@ -22,6 +22,8 @@
   Angles live in RAM; never restore relative yaw from EEPROM after power loss.
 */
 #include "SentinelController.h"
+#include "Encoder.h"
+#include "IrSensors.h"
 #include <Arduino.h>
 #include <Wire.h>
 #include <math.h>
@@ -119,20 +121,9 @@ float absolute(float x) { return x < 0 ? -x : x; }
 float wrap360(float x) { x = fmodf(x, 360.0f); return x < 0 ? x + 360.0f : x; }
 float wrap180(float x) { return fmodf(wrap360(x + 180.0f) + 360.0f, 360.0f) - 180.0f; }
 
-volatile int32_t encoderCounts = 0;
-volatile bool encoderPrevA = false;
-ISR(PCINT0_vect) {
-  const bool a = (PINB & _BV(PB1)) != 0;
-  if (a && !encoderPrevA) {
-    const bool b = (PINB & _BV(PB2)) != 0;
-    encoderCounts += b ? -1 : 1;
-  }
-  encoderPrevA = a;
-}
+Encoder driveEncoder(ENCODER_A, ENCODER_B, (long)ENCODER_COUNTS_PER_REV);
 int32_t countsNow() {
-  int32_t n;
-  ATOMIC_BLOCK(ATOMIC_RESTORESTATE) { n = encoderCounts; }
-  return n;
+  return (int32_t)driveEncoder.count();
 }
 
 enum State : uint8_t {
@@ -910,10 +901,8 @@ void sentinelSetup() {
   for (uint8_t i=0; i<IR_SENSOR_COUNT; ++i) pinMode(IR_PINS[i],INPUT_PULLUP);
   pinMode(LASER_PIN,OUTPUT); pinMode(STATUS_LED,OUTPUT);
   pinMode(MOTOR_IN1,OUTPUT); pinMode(MOTOR_IN2,OUTPUT);
-  pinMode(ENCODER_A,INPUT_PULLUP); pinMode(ENCODER_B,INPUT_PULLUP);
+  driveEncoder.begin();
   motorCoast(); laserOff();
-  encoderPrevA = digitalRead(ENCODER_A)==HIGH;
-  PCICR |= _BV(PCIE0); PCMSK0 |= _BV(PCINT1);
   Wire.begin(); Wire.setClock(100000L);
   delay(100);
   if (!mpuWrite(0x6B,0x00) || !mpuWrite(0x1A,0x03) ||
@@ -948,4 +937,16 @@ void sentinelLoop() {
   updateTimed(ms);
   if (traceOn && (uint32_t)(ms-traceAt)>=250) { traceAt=ms; printStatus(); }
   digitalWrite(STATUS_LED, state==FAULT ? ((ms/120)%2) : (state==FINISHED || state==FIRE));
+}
+
+void SentinelController::begin() {
+  sentinelSetup();
+}
+
+void SentinelController::update() {
+  sentinelLoop();
+}
+
+void UserIRReceiveTimerInterruptHandler() {
+  IrSensors::timerInterrupt();
 }

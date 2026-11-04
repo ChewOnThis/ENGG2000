@@ -307,14 +307,10 @@ void laserOff(){
 void laserOn(){
 #if LASER_ENABLED
 
-  Serial.print(F("LASER_ARM,angle_error="));Serial.print(arcCentre-yaw,2);
-  Serial.print(F(",rate="));Serial.println(yawRateFiltered,2);
   Serial.flush();
   digitalWrite(PIN_LASER,HIGH);
   laserHigh=true;recordEvent(EV_LASER_ON);
-  Serial.println(F("LASER_D4_HIGH,OUTPUT_COMMAND_CONFIRMED"));
 #else
-  Serial.println(F("LASER_DISABLED_IN_BUILD"));
 #endif
 }
 bool timeElapsed(uint32_t now,uint32_t since,uint32_t waitMs);
@@ -323,7 +319,7 @@ void motorHardware(int16_t p){
   if(p>255)p=255; else if(p<-255)p=-255;
   if(p>0){analogWrite(PIN_IN1,255);analogWrite(PIN_IN2,255-p);motorMode=MOTOR_DRIVE;}
   else if(p<0){analogWrite(PIN_IN2,255);analogWrite(PIN_IN1,255+p);motorMode=MOTOR_DRIVE;}
-  else {analogWrite(PIN_IN1,255);analogWrite(PIN_IN2,255);motorMode=MOTOR_IDLE;}
+  else {analogWrite(PIN_IN1,0);analogWrite(PIN_IN2,0);motorMode=MOTOR_IDLE;}
 }
 
 void motorOff(){pwmGoal=pwmActual=0;pwmApplied=0;motorHardware(0);}
@@ -332,7 +328,6 @@ void serviceLaserSelfTest(uint32_t now){
   if(laserSelfTestActive &&
      (state!=CAL || timeElapsed(now,laserSelfTestStarted,LASER_CAL_SELFTEST_MS))){
     laserOff();laserSelfTestActive=false;
-    Serial.println(F("LASER_CAL_TEST_OFF,D4_LOW"));
   }
 }
 void enter(State s){
@@ -362,7 +357,6 @@ void safeStop(uint8_t c){
   if(state==STOP)return;
   stopCode=c;laserSelfTestActive=false;laserOff();motorOff();enter(STOP);
   recordEvent(EV_FAULT);
-  Serial.print(F("SAFETY_STOP,code="));Serial.println(c);
 }
 void beginClear(){
   laserOff();arcValid=false;slowArcStarted=false;
@@ -394,8 +388,6 @@ void startWithFixedBias(){
   calibrated=true;fallbackBias=false;
   yaw=yawRate=yawRateFiltered=0;pointingRate=0;pointingRateReady=false;
   lastGyroUs=micros();lastGyroMs=millis();
-  Serial.print(F("FIXED_X_BIAS,raw="));Serial.print(GYRO_X_BIAS,4);
-  Serial.print(F(",dps="));Serial.println(gyroBias,6);
   beginClear();
 }
 void gyroUpdate(uint32_t now){
@@ -463,7 +455,6 @@ void initialiseArc(float entry,uint32_t ms){
   arcExit=entry;arcMin=arcMax=entry;arcPath=arcMaxRate=0;
   lastArcPathYaw=entry;lastArcPathMs=millis();
   slowArcStarted=true;
-  Serial.print(F("SLOW_ARC_ENTRY,deg="));Serial.println(entry,2);
 }
 void rescanOrSeek(){controlledSearchRecovery(false);}
 void restartSearch(bool reverseDirection){
@@ -473,7 +464,6 @@ void restartSearch(bool reverseDirection){
   if(reverseDirection)seekDirection=-seekDirection;
   seekLevel=100.0f;seekStallAt=0;clearSince=0;
   enter(UNWIND); // brake for 650 ms, then actively leave any old IR window
-  Serial.println(F("RECOVER,brake_then_continuous_seek"));
 }
 
 
@@ -484,7 +474,6 @@ void controlledSearchRecovery(bool reverseDirection){
   departureApplied=previousCommand;
   departureReference=yawRateFiltered;
   departureAt=millis();departureStillAt=0;
-  Serial.println(F("CONTROLLED_SEARCH_TRANSITION"));
 }
 void completedTargetDeparture(){
   searchDirectionWatchArmed=true;
@@ -508,17 +497,10 @@ void finishArc(float exit,uint32_t ms){
   if(bad){
     ++rejectedArcs;
     scanRejectReason=bad;recordEvent(EV_SCAN_REJECT);
-    Serial.print(F("ARC_BAD,reason="));Serial.print(bad);
-    Serial.print(F(",span="));Serial.print(arcWidth,2);
-    Serial.print(F(",eff="));Serial.println(efficiency,2);
     rescanOrSeek();
   }else{
     ++validArcs;arcCentre=(arcEntry+arcExit)*0.5f;arcValid=true;recordEvent(EV_ARC);
     phaseStillAt=0;
-    Serial.print(F("ARC_OK,entry="));Serial.print(arcEntry,2);
-    Serial.print(F(",exit="));Serial.print(arcExit,2);
-    Serial.print(F(",centre="));Serial.print(arcCentre,2);
-    Serial.print(F(",width="));Serial.println(arcWidth,2);
     enter(ARC_BRAKE);
   }
 }
@@ -551,8 +533,6 @@ void irUpdate(uint32_t now){
                       !validatedTarget;
   if(stuckLow && !irStuckReported){
     irStuckReported=true;
-    Serial.print(F("IR_STUCK_LOW,ms="));Serial.print(lowDurationMs);
-    Serial.println(F(",check_receiver_supply_or_carrier_saturation"));
   }
   if(!low)irStuckReported=false;
   const bool steadyLow=low && lowDurationMs>=IR_LOW_STEADY_MS &&
@@ -573,22 +553,18 @@ void irUpdate(uint32_t now){
   }
   if(stuckLow && ir.active){
     ir.active=false;ir.groupPulses=0;ir.groupStart=0;
-    Serial.println(F("IR_INVALID,continuous_LOW_timeout"));
     if(state==SLOW_SCAN && slowArcStarted)rescanOrSeek();
   }
   if(!ir.active){
     if(!stuckLow && ((ir.groupPulses>=IR_PULSES_REQUIRED &&
          now-ir.groupStart<=IR_GROUP_MS && ir.groupStart!=0)||steadyLow)){
       ir.active=true;++irOnCount;
-      Serial.print(F("IR_ON,edge="));Serial.print(ir.firstYaw,2);
-      Serial.print(F(",pulses="));Serial.println(ir.groupPulses);
       if(state==SEEK)firstIrEncounter(ir.firstYaw);
       else if(state==SLOW_SCAN && !slowArcStarted)
         initialiseArc(ir.firstYaw,ir.groupStart);
     }
   }else if(!low && timeElapsed(now,ir.lastSignal,IR_LOSS_MS)){
     ir.active=false;++irOffCount;
-    Serial.print(F("IR_OFF,edge="));Serial.println(ir.lastYaw,2);
     ir.groupPulses=0;ir.groupStart=0;
     if(state==SLOW_SCAN && slowArcStarted)finishArc(ir.lastYaw,ir.lastSignal);
   }
@@ -806,7 +782,6 @@ bool updateLaserArming(uint32_t now){
     laserOn();
     ++fires;
     enter(FIRE);
-    Serial.println(F("LASER_ON,centred_with_confirmed_active_LOW_IR"));
     return true;
   }
   return false;
@@ -840,7 +815,6 @@ bool searchMovingBackward(uint32_t now){
 void sequence(uint32_t now){
   if(searchMovingBackward(now)){
     recordEvent(EV_SEARCH_WRONG);
-    Serial.println(F("SEARCH_BACKWARD,reverse_via_controlled_transition"));
     controlledSearchRecovery(true);return;
   }
   if((state==AIM||state==FINE||state==FIRE) && trackingNeedsRecovery(now)){
@@ -916,10 +890,9 @@ void sequence(uint32_t now){
       break;
     case FIRE:
       if(!maintainLock(now)){
-        laserOff();enter(FINE);Serial.println(F("LASER_OFF,lock_lost"));
+        laserOff();enter(FINE);
       }else if(timeElapsed(now,fireStartedAt,FIRE_DWELL_MS)){
         recordEvent(EV_COMPLETE);laserOff();
-        Serial.println(F("TARGET_HOLD_COMPLETE,2000ms_laser_command"));
         completedTargetDeparture();
       }
       break;
@@ -1046,8 +1019,6 @@ void recorderCommands(){
     EEPROM.update(3,0xA1);Serial.println(F("ARMED_NEXT_BOOT,power_off_then_battery_on"));return;
   }
   EEPROM.update(3,0);
-  Serial.println(F("EVENT_LOG_BEGIN,V40"));
-  Serial.println(F("time_ms,event,state_or_block,error_cdeg,rate_cdps,rpm_or_centre,pwm_or_confirm,flags"));
   uint8_t si=0,ei=0;
   while(si<summarySaved || ei<saved){
     const uint16_t sa=16+(uint16_t)si*12,ea=16+(uint16_t)(60+ei)*12;
@@ -1062,8 +1033,6 @@ void recorderCommands(){
     Serial.print(',');Serial.print((int16_t)(int8_t)EEPROM.read(a+8)*2);
     Serial.print(',');Serial.println(EEPROM.read(a+11));
   }
-  Serial.print(F("EVENT_LOG_END,windows="));Serial.print(summarySaved);
-  Serial.print(F(",events="));Serial.println(saved);
 }
 void recorderObserve(){
   if(!recording)return;
@@ -1114,8 +1083,6 @@ void setup(){
   if(isLow){lowStartUs=micros();lastLowSeenUs=micros();}
   PCMSK0|=_BV(PCINT3);PCICR|=_BV(PCIE0);
   enteredMs=millis();lastGyroUs=micros();
-  Serial.println(F("MQ SENTINEL V40 | GENTLE FINE HOLD"));
-  Serial.println(F("CSV:ms,seq,state,yaw_d10,error_d100,rate_d100,rpm_d10,pwm,flags,stop"));
   recorderInit();
 
 }

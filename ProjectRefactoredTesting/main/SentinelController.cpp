@@ -9,18 +9,18 @@
 // translation unit so interrupt timing and ordering are unchanged.
 MotorController motorController(6, 7, false);
 Encoder encoder(9, 10, 700);
-Mpu6050Gyro gyro(0x68, 2, 1.0f, 131.0f);
-IrSensors irSensors(2, 3, 4, 250);
+Mpu6050Gyro gyro(0x68, 1, 1.0f, 131.0f);
+IrSensors irSensors(3, 250);
 // MQ SENTINEL - MOMENTUM FUNNEL V8.0
 //
 // Modified from FLUID MICRO ALIGN V7.6.
 //
 // PRESERVED FROM V7.6 / V6
-//   - Arduino Nano, IRremote.hpp, three-receiver ISR hookup
-//   - D2/D3/D4 IR, D6/D7 motor driver, D8 laser, D9/D10 encoder, D13 LED
+//   - Arduino Nano, IRremote.hpp, centre-receiver ISR hookup
+//   - D3 centre IR, D6/D7 motor driver, D8 laser, D9/D10 encoder, D13 LED
 //   - motorLeftPWM(), motorRightPWM(), motorNeutral() exactly as tested
 //   - 700 encoder counts per output revolution (same counting rule)
-//   - ALL_THREE required before firing, ~2.1 s dwell, wait-for-clear
+//   - CENTRE_ONLY required before firing, ~2.1 s dwell, wait-for-clear
 //
 // ------------------------------------------------------------
 // WHY V8 IS DIFFERENT
@@ -67,7 +67,7 @@ IrSensors irSensors(2, 3, 4, 250);
 //   driftEstimate - the chassis rotation we have put in recently, fading
 //                   away at the rate swivel friction removes it.
 //
-// Because driftTarget shrinks toward centre and is zero at ALL_THREE, the
+// Because driftTarget shrinks toward centre and is zero at CENTRE_ONLY, the
 // same law slows the approach, stops at the centre, and reverses at once
 // if inertia carries the target through to the far side
 // (RIGHT -> CENTRE -> LEFT). No approach memory, crossing guards, micro
@@ -99,9 +99,7 @@ IrSensors irSensors(2, 3, 4, 250);
 // PINS (unchanged)
 // ============================================================
 
-const byte LEFT_SENSOR   = 2;
 const byte CENTRE_SENSOR = 3;
-const byte RIGHT_SENSOR  = 4;
 
 const byte MOTOR_IN1  = 6;
 const byte MOTOR_IN2  = 7;
@@ -113,11 +111,11 @@ const byte STATUS_LED = 13;
 // MPU-6050 is connected over I2C: SDA=A4, SCL=A5 on the Nano.
 // Mount the gyro rigidly to the body, not to the reaction wheel.
 const byte MPU6050_ADDRESS = 0x68; // Use 0x69 if AD0 is tied HIGH.
-const byte GYRO_YAW_AXIS = 2;      // 0=X, 1=Y, 2=Z; select the body yaw axis.
+const byte GYRO_YAW_AXIS = 1;      // 0=X, 1=Y, 2=Z; select the body yaw axis.
 const float GYRO_YAW_SIGN = 1.0f;  // Set to -1 if the measured direction is reversed.
 const float GYRO_LSB_PER_DPS = 131.0f; // +/-250 dps full-scale configuration.
-const unsigned long GYRO_CALIBRATION_SAMPLES = 300;
-const unsigned long GYRO_CALIBRATION_INTERVAL_MS = 10;
+const unsigned long GYRO_CALIBRATION_SAMPLES = 600;
+const unsigned long GYRO_CALIBRATION_INTERVAL_MS = 3;
 const float GYRO_RATE_FILTER_ALPHA = 0.15f;
 const float GYRO_CONFIRM_RATE_LIMIT_DPS = 0.65f;
 const float GYRO_FIRE_RATE_LIMIT_DPS = 1.0f;
@@ -189,20 +187,17 @@ const float STARTUP_SCAN_OVERSCAN_DEG = 150.0f;
 const float STARTUP_SCAN_MIN_ARC_DEG = 2.0f;
 const float STARTUP_SCAN_MAX_ARC_DEG = 120.0f;
 
-// ALL_THREE must be held this long (with low estimated drift) before firing.
+// CENTRE_ONLY must be held this long (with low estimated drift) before firing.
 const unsigned long ALIGN_CONFIRM_MS = 200;
 const float CONFIRM_MAX_DRIFT = 4.0f;
 
-// Entering ALL_THREE from a side means we are on the EDGE of the overlap.
-// Keep a very small push in the same direction for this long so the target
-// settles inside the overlap instead of on its boundary, then stop.
-// Cancelled at once if the opposite side's sensor appears.
-const unsigned long ALL3_CARRY_MS = 250;
+// Keep the chassis settled in the centre sensor for this long before firing.
+const unsigned long ALL3_CARRY_MS = 0;
 const float DRIFT_ALL3_CARRY = 4.0f;
 
 // String hold for the shot. When the string is wound up it can pull the
-// chassis out of ALL_THREE as soon as steering stops. Each time the target
-// slips out of ALL_THREE during CONFIRM/FIRE, a small steady lean against
+// chassis out of CENTRE_ONLY as soon as steering stops. Each time the target
+// slips out of CENTRE_ONLY during CONFIRM/FIRE, a small steady lean against
 // that slip is learned (HOLD_STEP) for the next attempt on the SAME target.
 // Bounded by HOLD_MAX, used only in CONFIRM/FIRE, reset for every new target.
 // Set HOLD_STEP = 0 to disable.
@@ -217,16 +212,11 @@ const unsigned long CLEAR_CONFIRM_MS = 350;
 
 // ---------- Steering targets (drift units) ----------
 //
-//     LEFT_ONLY   LEFT_CENTRE   ALL_THREE   CENTRE_RIGHT   RIGHT_ONLY
-//      OUTER        INNER          0           INNER          OUTER
-//       CCW          CCW         (stop)         CW              CW
-//
-// LEFT and RIGHT use the SAME numbers. Only the sign differs.
+// The centre sensor provides the only alignment zone; side zones are no
+// longer available after reducing the receiver count.
 
 const float STEERING_STRENGTH = 1.00f;  // master scale for the four values below
 
-const float DRIFT_OUTER     = 14.0f;    // LEFT_ONLY / RIGHT_ONLY
-const float DRIFT_INNER     =  7.0f;    // LEFT_CENTRE / CENTRE_RIGHT
 const float DRIFT_CREEP     =  3.0f;    // CENTRE_ONLY, after it has settled
 const float DRIFT_REACQUIRE =  5.0f;    // brief IR loss near the target
 
@@ -253,11 +243,8 @@ const float COAST_TIME_S = 0.8f;
 const float TRACK_MAX_TORQUE  = 250.0f;
 const float SEARCH_MAX_TORQUE =  80.0f;
 
-// Side integral ("keep leaning"): while the target stays on the SAME side
-// (L/LC, or CR/R), the push grows slowly. This is what overcomes swivel
-// friction and string torque, which a fixed small push cannot. It is reset
-// to zero the moment the target crosses to the other side or reaches
-// ALL_THREE, so it can never carry the chassis through an overshoot.
+// Side integral retained as zero-valued state for the common steering loop;
+// no side receiver remains to provide a side signal.
 // CENTRE_ONLY and brief IR loss freeze it (no growth, no reset).
 const float SIDE_PUSH_RATE = 8.0f;    // drift units added per second
 const float SIDE_PUSH_MAX  = 30.0f;   // drift units
@@ -265,9 +252,6 @@ const float SIDE_PUSH_MAX  = 30.0f;   // drift units
 // ---------- CENTRE_ONLY and brief-loss behaviour ----------
 
 // CENTRE_ONLY: hold still first, then creep very slowly, alternating sides.
-const unsigned long CENTRE_ONLY_SETTLE_MS = 300;
-const unsigned long CENTRE_CREEP_FLIP_MS  = 1200;
-
 // IR lost while tracking (measured from the last decoded frame):
 //   0 .. REACQUIRE_SETTLE_MS          hold still, let the string settle
 //   .. TARGET_LOST_MS                 gentle creep toward the last seen side
@@ -351,6 +335,13 @@ const float WHEEL_SETPOINT_LEAD_RPM = 25.0f;
 
 const int WHEEL_PWM_MAX = 230;
 
+// While searching, use short motor bursts so the chassis advances in measured
+// steps instead of coasting continuously past the centre sensor. Once the
+// centre sensor locks, the normal speed loop resumes and holds a constant
+// wheel speed for confirmation and firing.
+const unsigned long SEARCH_PULSE_ON_MS = 140;
+const unsigned long SEARCH_PULSE_OFF_MS = 260;
+
 // ---------- Start-up ----------
 //
 // At power-up the wheel is brought up to speed slowly (open-loop ramp until
@@ -395,12 +386,11 @@ const unsigned long TELEMETRY_MS = 200;   // 0 disables serial telemetry
 // TRACK       The sensor funnel. driftTarget comes only from the current
 //             zone. Brief IR loss is handled here (settle, gentle creep).
 //             Out of wheel headroom -> gentle rewind, then continue.
-//             ALL_THREE -> CONFIRM. Lost > TARGET_LOST_MS -> SEARCH.
-// CONFIRM     ALL_THREE: short carry off the edge of the overlap, then
-//             steering target zero. Fires after ALL_THREE has been held for
+//             CENTRE_ONLY -> CONFIRM. Lost > TARGET_LOST_MS -> SEARCH.
+// CONFIRM     CENTRE_ONLY: hold the chassis settled, then fire after
 //             ALIGN_CONFIRM_MS with low estimated drift.
-//             Leaving ALL_THREE -> TRACK.
-// FIRE        Laser on while ALL_THREE holds (steering target = learned
+//             Leaving CENTRE_ONLY -> TRACK.
+// FIRE        Laser on while CENTRE_ONLY holds (steering target = learned
 //             string hold, usually 0). Any loss -> laser off at once, dwell
 //             timer discarded, back to TRACK. FIRE_TIME_MS -> WAIT_CLEAR.
 // WAIT_CLEAR  Laser off, hold still. Beacon gone for CLEAR_CONFIRM_MS ->
@@ -464,7 +454,7 @@ float driftEstimate = 0.0f;       // + = wheel-model estimate of body turning CW
 unsigned long gyroStableSince = 0;
 float sidePush = 0.0f;            // integral push, drift units (>= 0)
 int   sidePushSide = 0;           // side it was built on (BODY_CW / BODY_CCW)
-int   carrySide = 0;              // side ALL_THREE was entered from
+int   carrySide = 0;              // retained for state-machine bookkeeping
 float holdBias = 0.0f;            // learned lean during CONFIRM/FIRE (+ = CW)
 float driftTarget = 0.0f;
 float prevWheelForDrift = 0.0f;
@@ -776,8 +766,6 @@ void updateDriftEstimate(float dt) {
 
 // Which way the CURRENT zone says to turn (0 = no side information).
 int zoneSide(Zone z) {
-  if (z == LEFT_ONLY  || z == LEFT_CENTRE)  return LEFT_CORRECTION_DIRECTION;
-  if (z == RIGHT_ONLY || z == CENTRE_RIGHT) return RIGHT_CORRECTION_DIRECTION;
   return 0;
 }
 
@@ -791,7 +779,7 @@ void updateSidePush(float dt) {
   int side = zoneSide(zone);
 
   if (side == 0) {
-    return;                        // CENTRE_ONLY / LEFT_RIGHT / NONE: freeze
+    return;                        // CENTRE_ONLY / NONE: freeze
   }
 
   if (side != sidePushSide) {
@@ -816,44 +804,12 @@ int fallbackDirection() {
 // correcting for RIGHT, the very next 10 ms tick targets CCW and the
 // steering law reverses smoothly.
 float trackDriftTarget(unsigned long now) {
-  unsigned long zoneAge = now - zoneSince;
-
   switch (zone) {
-    case RIGHT_ONLY:
-      return RIGHT_CORRECTION_DIRECTION * (DRIFT_OUTER + sidePush);
-
-    case CENTRE_RIGHT:
-      return RIGHT_CORRECTION_DIRECTION * (DRIFT_INNER + sidePush);
-
-    case LEFT_ONLY:
-      return LEFT_CORRECTION_DIRECTION * (DRIFT_OUTER + sidePush);
-
-    case LEFT_CENTRE:
-      return LEFT_CORRECTION_DIRECTION * (DRIFT_INNER + sidePush);
-
-    case ALL_THREE:
-    case LEFT_RIGHT:
-      // Aligned, or an ambiguous L+R pattern: stop and let it settle.
-      return 0.0f;
-
     case CENTRE_ONLY: {
-      // Very close but not ALL_THREE (often a side receiver missing a
-      // frame). Hold still first; if it persists, creep very slowly -
-      // first continuing the way we were going, then alternating.
-      if (zoneAge < CENTRE_ONLY_SETTLE_MS) {
-        return 0.0f;
-      }
-
-      unsigned long phase =
-        (zoneAge - CENTRE_ONLY_SETTLE_MS) / CENTRE_CREEP_FLIP_MS;
-
-      // phase 0: dir, 1-2: -dir, 3-4: dir, ... (sweeps both sides evenly)
-      int dir = fallbackDirection();
-      if (((phase + 1) / 2) % 2 == 1) {
-        dir = -dir;
-      }
-
-      return dir * DRIFT_CREEP;
+      // The centre receiver is the only alignment signal. Do not creep after
+      // lock: the chassis must settle over the target rather than overshoot
+      // while CONFIRM waits for a stable gyro reading.
+      return 0.0f;
     }
 
     case NONE:
@@ -869,6 +825,15 @@ float trackDriftTarget(unsigned long now) {
       return fallbackDirection() * DRIFT_REACQUIRE;
     }
   }
+}
+
+bool searchPulseOn(unsigned long nowMs) {
+  if ((state != SEARCH && state != STARTUP_SCAN) || zone == CENTRE_ONLY) {
+    return true;
+  }
+
+  unsigned long cycle = SEARCH_PULSE_ON_MS + SEARCH_PULSE_OFF_MS;
+  return (nowMs - stateSince) % cycle < SEARCH_PULSE_ON_MS;
 }
 
 float chooseDriftTarget(unsigned long now) {
@@ -1003,8 +968,14 @@ void runWheelSpeedLoop(float dt, unsigned long nowMs) {
   u = constrain(u, 0.0f, (float)WHEEL_PWM_MAX);
   wheelPWM = (int)(u + 0.5f);
 
-  // The ONLY motor command in normal operation.
-  motorController.leftPwm(wheelPWM);
+  // The search movement is pulsed. Centre lock bypasses this gate and keeps
+  // the wheel at constant speed through CONFIRM and FIRE.
+  if (searchPulseOn(nowMs)) {
+    motorController.leftPwm(wheelPWM);
+  } else {
+    wheelPWM = 0;
+    motorController.neutral();
+  }
 
   // Wheel cannot go any faster (supply / motor limit reached).
   if (satHigh && err > 3.0f) {
@@ -1207,14 +1178,14 @@ void controlTick(unsigned long nowMs) {
 // ============================================================
 // STRING HOLD LEARNING (one rule)
 // ============================================================
-// Called when the target slips out of ALL_THREE during CONFIRM/FIRE.
+// Called when the target slips out of CENTRE_ONLY during CONFIRM/FIRE.
 // The zone it slipped into says which way to lean next time.
 
 void learnHold() {
   int side = zoneSide(zone);
 
   if (side == 0) {
-    return;   // slipped into CENTRE_ONLY / LEFT_RIGHT / NONE: no direction info
+    return;   // centre-only receiver provides no direction information
   }
 
   holdBias += side * HOLD_STEP;
@@ -1259,7 +1230,7 @@ void updateStateMachine(unsigned long now) {
     // TRACK: the sensor funnel (see trackDriftTarget()).
     // --------------------------------------------------------
     case TRACK:
-      if (zone == ALL_THREE) {
+      if (zone == CENTRE_ONLY) {
         // The side we were being pushed from is the edge we just crossed.
         carrySide = sidePushSide;
         alignedSince = now + ALL3_CARRY_MS;
@@ -1283,10 +1254,10 @@ void updateStateMachine(unsigned long now) {
       break;
 
     // --------------------------------------------------------
-    // CONFIRM: ALL_THREE must hold, with the chassis believed settled.
+    // CONFIRM: CENTRE_ONLY must hold, with the chassis believed settled.
     // --------------------------------------------------------
     case CONFIRM:
-      if (zone != ALL_THREE) {
+      if (zone != CENTRE_ONLY) {
         if (now - stateSince >= ALL3_CARRY_MS) {
           learnHold();
         }
@@ -1320,10 +1291,10 @@ void updateStateMachine(unsigned long now) {
       break;
 
     // --------------------------------------------------------
-    // FIRE: laser on only while ALL_THREE holds (enforced in loop()).
+    // FIRE: laser on only while CENTRE_ONLY holds (enforced in loop()).
     // --------------------------------------------------------
     case FIRE:
-      if (zone != ALL_THREE ||
+      if (zone != CENTRE_ONLY ||
           !gyro.ready() ||
           now - gyro.lastReadMs() > GYRO_STALL_MS ||
           fabs(gyro.yawRateDps()) > GYRO_FIRE_RATE_LIMIT_DPS) {
@@ -1511,13 +1482,7 @@ const __FlashStringHelper *stateName(MainState s) {
 const __FlashStringHelper *zoneName(Zone z) {
   switch (z) {
     case NONE:         return F("-");
-    case LEFT_ONLY:    return F("L");
-    case LEFT_CENTRE:  return F("LC");
     case CENTRE_ONLY:  return F("C");
-    case ALL_THREE:    return F("LCR");
-    case CENTRE_RIGHT: return F("CR");
-    case RIGHT_ONLY:   return F("R");
-    case LEFT_RIGHT:   return F("LR");
     default:           return F("?");
   }
 }
@@ -1644,13 +1609,13 @@ void sentinelLoop() {
   updateStateMachine(now);
 
   // The ONLY place the laser can be switched on. It is on strictly while
-  // in FIRE with all three sensors active, so it goes off on the same loop
-  // pass that ALL_THREE is lost.
+  // in FIRE with the centre sensor active, so it goes off on the same loop
+  // pass that CENTRE_ONLY is lost.
   bool gyroSafeForLaser =
     gyro.ready() &&
     now - gyro.lastReadMs() <= GYRO_STALL_MS &&
     fabs(gyro.yawRateDps()) <= GYRO_FIRE_RATE_LIMIT_DPS;
-  bool laserOn = (state == FIRE) && (zone == ALL_THREE) && gyroSafeForLaser;
+  bool laserOn = (state == FIRE) && (zone == CENTRE_ONLY) && gyroSafeForLaser;
   digitalWrite(LASER_PIN, laserOn ? HIGH : LOW);
 
   updateStatusLED(now);
@@ -1658,10 +1623,9 @@ void sentinelLoop() {
 }
 
 // ============================================================
-// MULTIPLE IR RECEIVER TIMER HANDLER (unchanged)
+// IR RECEIVER TIMER HANDLER
 // ============================================================
-// IRremote's Timer2 ISR services IrReceiver (LEFT) itself, then calls this
-// for the other two instances.
+// IRremote's Timer2 ISR calls this handler for the centre receiver instance.
 
 void UserIRReceiveTimerInterruptHandler() {
   IrSensors::timerInterrupt();

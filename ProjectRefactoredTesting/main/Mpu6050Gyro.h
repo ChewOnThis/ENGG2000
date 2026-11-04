@@ -22,4 +22,5 @@ private:
   bool writeRegister(byte reg, byte value);
   bool readWhoAmI();
   bool readRaw(int16_t raw[3]);
+  float readTemperature();
 };

@@ -10,12 +10,14 @@ Independent revision based on the confirmed V35 baseline.
 - Reduces the hold-bias integrator from `KI=0.8`, limit `20` to `KI=0.35`, limit `10`.
 - Freezes bias learning during the two-second FIRE hold.
 - Slew-limits FINE/FIRE motor-command changes to `700 PWM/s` to reduce twitching.
+- Removes verbose serial diagnostics to fit the Nano's 30,720-byte flash limit. The CSV and EEPROM record contents are unchanged.
+- Sets both motor outputs LOW for a zero command, using coast instead of the previous active-brake HIGH/HIGH state to reduce lock jitter.
 
 These changes target the reported twitching during target lock and accumulated drift. V35 remains the rollback baseline.
 
 ## Validation
 
-Use the same direct-four-support-strings-to-swivel suspension and comparison protocol as V35. Confirm laser firing and completed holds before comparing drift or twitching.
+Use the same direct-four-support-strings-to-swivel suspension and comparison protocol as V35. Confirm laser firing and completed holds before comparing drift or twitching. The compact build retains the `A`/`D` serial commands, but no longer prints the verbose startup, state, arc, IR, or event-log headers.
 
 ---
 

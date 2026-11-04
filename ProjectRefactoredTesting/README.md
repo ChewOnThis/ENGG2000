@@ -9,23 +9,28 @@ The original sketch is intentionally untouched.
 - `SentinelController.h/.cpp` — V8 state machine, telemetry, and laser interlock. It consumes the component APIs below and contains no sensor or motor implementation.
 - `MotorController.h/.cpp` — DRV8874 motor pinout and the tested left/right/neutral PWM behavior.
 - `Encoder.h/.cpp` — encoder setup, Nano PCINT ISR (with polling fallback), count access, direction sign, and speed-window measurement.
-- `Mpu6050Gyro.h/.cpp` — MPU-6050 register transactions, WHO_AM_I/initialization status, stationary bias calibration, filtered X/Y/Z rates, and integrated X/Y/Z angles.
-- `IrSensors.h/.cpp` — IRremote receiver instances, frame hold/zone state,
-  sustained acquisition filtering, decoding, and the shared Timer2 callback
-  required for multi-receiver operation.
+- `Mpu6050Gyro.h/.cpp` — MPU-6050 register transactions, WHO_AM_I/initialization status,
+  six-pass stationary Y-axis bias testing, filtered X/Y/Z rates, and integrated X/Y/Z angles.
+- `IrSensors.h/.cpp` — the centre IRremote receiver, frame hold/zone state,
+  sustained acquisition filtering, decoding, and the shared Timer2 callback.
 
 ## Build requirements
 
 Open `main/main.ino` in the Arduino IDE (or build the `main` folder with Arduino CLI) for an
-Arduino Nano/ATmega328P. Install **IRremote** (the `IRremote.hpp` API, with
-multiple receiver instances enabled) and use the built-in **Wire** library.
-The sketch uses pins D2/D3/D4 for IR, D6/D7 for the motor driver, D8 for the
+Arduino Nano/ATmega328P. Install **IRremote** (the `IRremote.hpp` API) and use
+the built-in **Wire** library.
+The sketch uses pin D3 for the centre IR sensor, D6/D7 for the motor driver, D8 for the
 laser, D9/D10 for the encoder, D13 for the status LED, and the Nano I2C pins
 A4/A5 for the MPU-6050. Do not add another `setup()` or `loop()` to this folder.
 
 The original V8 constants, state transitions, safety checks, telemetry, and
 laser rule are kept in `SentinelController.cpp`; changes should be made there
 when tuning behavior.
+
+During `SEARCH`, the reaction-wheel motor is driven in short pulses
+(140 ms on, 260 ms off) to limit overshoot. When the centre IR sensor locks,
+the pulse gate is bypassed and the wheel returns to constant-speed control
+while the gyro confirms alignment and the laser fires.
 
 ## Startup IR scan
 
@@ -40,7 +45,7 @@ The acquisition and scan constants currently contain placeholders:
 `IR_ACQUIRE_CONFIRM_MS`, `IR_ACQUIRE_GAP_MS`, `IR_REQUIRED_FRAMES`,
 `STARTUP_SCAN_OVERSCAN_DEG`, and the arc-width limits. Replace them after
 measuring the assembled target and receiver timing. The laser remains governed
-by the existing `ALL_THREE` and gyro interlocks; it is not enabled by the scan.
+by the `CENTRE_ONLY` and gyro interlocks; it is not enabled by the scan.
 
 ## Gyro and IR diagnostics
 
@@ -56,6 +61,8 @@ send a complete line with one of these commands:
   steering. Send `R` again to reset the capture, or `NORMAL` to leave the
   diagnostic indication mode.
 
-The gyro angles (including yaw) are relative to startup calibration and will
-drift over time; they are not an absolute compass heading. The diagnostic LED
+The gyro performs six 600-sample stationary calibration passes at startup, so
+keep the sensor still during the printed bias test. The gyro angles (including
+yaw) are relative to startup calibration and will drift over time; they are not
+an absolute compass heading. The diagnostic LED
 uses D13, not D6: D6 is reserved for motor IN1.

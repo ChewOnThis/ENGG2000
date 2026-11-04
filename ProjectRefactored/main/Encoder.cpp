@@ -6,7 +6,7 @@
 Encoder *Encoder::instance_ = nullptr;
 Encoder::Encoder(byte a, byte b, long cpr) : pinA_(a), pinB_(b), countsPerRevolution_(cpr), count_(0), sign_(1), historySize_(0), historyHead_(0), countHistory_(nullptr), timeHistory_(nullptr), historyPrimed_(false), lastCountSeen_(0), lastCountChangeMs_(0), rawRpm_(0), rpm_(0) {}
 void Encoder::begin() {
-  pinMode(pinA_, INPUT); pinMode(pinB_, INPUT); instance_ = this;
+  pinMode(pinA_, INPUT_PULLUP); pinMode(pinB_, INPUT_PULLUP); instance_ = this;
 #if defined(__AVR_ATmega328P__) || defined(__AVR_ATmega168__)
   previousA_ = PINB & _BV(1);
   PCIFR |= _BV(PCIF0); PCMSK0 |= _BV(PCINT1); PCICR |= _BV(PCIE0);
