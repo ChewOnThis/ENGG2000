@@ -6,6 +6,8 @@ and the experiments used to tune those behaviours.
 
 ## Start Here
 
+- [MB versions speed trials](MB%20versions/SPEED_TRIALS.md) contains independent V36 braking, V37 faster-return, and V38 search-recovery experiments. V35 remains the confirmed baseline.
+
 - [MQ_Sentinel_V35/](MQ_Sentinel_V35/README.md) is the latest confirmed five-hit baseline with the four support strings connected directly to the swivel. It is a separate firmware family from the `MQ_HM_Sentinel_*` experiments.
 - [MQ_Sentinel_V33/](MQ_Sentinel_V33/README.md) preserves the earlier five-hold experiment and its documented limitations.
 - [MQ_Sentinel_V31/](MQ_Sentinel_V31/README.md) preserves the earlier operator-selected
