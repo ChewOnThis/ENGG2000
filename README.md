@@ -6,6 +6,16 @@ and the experiments used to tune those behaviours.
 
 ## Start Here
 
+- [MB versions speed trials](MB%20versions/SPEED_TRIALS.md) contains independent V36 braking, V37 faster-return, and V38 search-recovery experiments. V35 remains the confirmed baseline.
+
+- [MQ_Sentinel_V35/](MQ_Sentinel_V35/README.md) is the latest confirmed five-hit baseline with the four support strings connected directly to the swivel. It is a separate firmware family from the `MQ_HM_Sentinel_*` experiments.
+- [MQ_Sentinel_V33/](MQ_Sentinel_V33/README.md) preserves the earlier five-hold experiment and its documented limitations.
+- [MQ_Sentinel_V31/](MQ_Sentinel_V31/README.md) preserves the earlier operator-selected
+  baseline after a four-location battery trial. It includes V30 control and
+  full-run gate summaries; the fourth target required assistance, as documented.
+- [MQ_Sentinel_V24/](MQ_Sentinel_V24/README.md) preserves the single-IR/gyro
+  V24 baseline with three recorded two-second laser-command holds. See its
+  README for different wiring, EEPROM workflow, and known post-hit/search issues.
 - [Project/Documentation.md](Project/Documentation.md) describes the current
   project sketch, wiring, control flow, and limitations.
 - [Project/Project.ino](Project/Project.ino) is the simple reference tracker.
