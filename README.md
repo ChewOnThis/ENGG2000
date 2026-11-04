@@ -6,8 +6,9 @@ and the experiments used to tune those behaviours.
 
 ## Start Here
 
-- [MQ_Sentinel_V33/](MQ_Sentinel_V33/README.md) is the latest experimental iteration. It adds startup-only no-progress reversal to V32; its first EEPROM dump recorded five firmware holds, but the new recovery did not trigger. V31 remains the operator-selected baseline.
-- [MQ_Sentinel_V31/](MQ_Sentinel_V31/README.md) is the current operator-selected
+- [MQ_Sentinel_V35/](MQ_Sentinel_V35/README.md) is the latest confirmed five-hit baseline with the four support strings connected directly to the swivel. It is a separate firmware family from the `MQ_HM_Sentinel_*` experiments.
+- [MQ_Sentinel_V33/](MQ_Sentinel_V33/README.md) preserves the earlier five-hold experiment and its documented limitations.
+- [MQ_Sentinel_V31/](MQ_Sentinel_V31/README.md) preserves the earlier operator-selected
   baseline after a four-location battery trial. It includes V30 control and
   full-run gate summaries; the fourth target required assistance, as documented.
 - [MQ_Sentinel_V24/](MQ_Sentinel_V24/README.md) preserves the single-IR/gyro

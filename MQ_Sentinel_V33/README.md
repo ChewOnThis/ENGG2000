@@ -6,8 +6,12 @@ The thresholds are a first physical trial setting. They have not been independen
 
 ## Test record
 
-The first V33 EEPROM dump recorded five `TARGET_HOLD_COMPLETE` events at 11.60, 47.23, 80.47, 134.22, and 171.64 seconds. These are firmware laser-command holds; EEPROM cannot verify the external beam position or score. No startup no-progress reversal event was recorded in this run, so the new recovery condition did not trigger during the logged run. Review the dump and operator observations together before drawing conclusions about the startup change.
+The first V33 EEPROM dump recorded five `TARGET_HOLD_COMPLETE` events at 11.60, 47.23, 80.47, 134.22, and 171.64 seconds. These are firmware laser-command holds; EEPROM cannot verify the external beam position or score. The EEPROM whitelist excluded event 16, so absence of a startup recovery marker cannot establish whether it triggered. Review the dump and operator observations together before drawing conclusions about the startup change.
 
 The classic Nano build (ATmega328P, old bootloader) uses 30,702 of 30,720 flash bytes and 985 bytes of static RAM. Flash headroom is only 18 bytes.
 
-See [test procedure](TESTING.md) for arming, startup observations, and EEPROM retrieval. V31 remains the operator-selected baseline; V33 is an experimental iteration.
+See [test procedure](TESTING.md) for arming, startup observations, and EEPROM retrieval. V35 is the newer confirmed baseline; V33 remains preserved as an earlier experiment.
+
+## Source-review correction
+
+V33 unintentionally relaxed post-hit wrong-direction eligibility from correctly signed applied PWM >=80 to any nonzero PWM. Its scope was therefore broader than startup-only. V35 restores the intended eligibility. The tested V33 source remains unchanged.
